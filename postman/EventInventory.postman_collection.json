@@ -1,0 +1,148 @@
+{
+  "info": {
+    "name": "Event & Inventory Management System",
+    "description": "Shared API contract. Backend keeps this updated and re-exports on every endpoint change. Import into the team workspace.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "user_token", "value": "" },
+    { "key": "admin_token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "User - Request OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/otp/request", "host": ["{{base_url}}"], "path": ["api", "auth", "otp", "request"] },
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"9876543210\"\n}" }
+          }
+        },
+        {
+          "name": "User - Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.token) {",
+                  "  pm.collectionVariables.set('user_token', res.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/otp/verify", "host": ["{{base_url}}"], "path": ["api", "auth", "otp", "verify"] },
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"9876543210\",\n  \"otp\": \"123456\"\n}" }
+          }
+        },
+        {
+          "name": "Admin - Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var res = pm.response.json();",
+                  "if (res.data && res.data.token) {",
+                  "  pm.collectionVariables.set('admin_token', res.data.token);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/api/auth/admin/login", "host": ["{{base_url}}"], "path": ["api", "auth", "admin", "login"] },
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"admin@eims.com\",\n  \"password\": \"Admin@123\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events (public)",
+      "item": [
+        {
+          "name": "List public events",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/events", "host": ["{{base_url}}"], "path": ["api", "events"] }
+          }
+        },
+        {
+          "name": "Get event by id",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/events/1", "host": ["{{base_url}}"], "path": ["api", "events", "1"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Events (admin)",
+      "item": [
+        {
+          "name": "List all events",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": { "raw": "{{base_url}}/api/admin/events", "host": ["{{base_url}}"], "path": ["api", "admin", "events"] }
+          }
+        },
+        {
+          "name": "Create event (TICKETED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/events", "host": ["{{base_url}}"], "path": ["api", "admin", "events"] },
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Stand-up Night\",\n  \"description\": \"An evening of comedy\",\n  \"type\": \"TICKETED\",\n  \"category\": \"COMEDY\",\n  \"venueName\": \"Laxmi Hall\",\n  \"city\": \"Nagpur\",\n  \"startTime\": \"2026-08-01T19:30:00\"\n}" }
+          }
+        },
+        {
+          "name": "Create event (INVENTORY, admin-only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/events", "host": ["{{base_url}}"], "path": ["api", "admin", "events"] },
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Corporate Annual Day\",\n  \"description\": \"Chairs, tables, sound and decor supplied\",\n  \"type\": \"INVENTORY\",\n  \"category\": \"EVENT\",\n  \"venueName\": \"Client Site\",\n  \"city\": \"Nagpur\",\n  \"startTime\": \"2026-08-05T10:00:00\"\n}" }
+          }
+        },
+        {
+          "name": "Update event",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/events/1", "host": ["{{base_url}}"], "path": ["api", "admin", "events", "1"] },
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Stand-up Night (updated)\",\n  \"type\": \"TICKETED\",\n  \"category\": \"COMEDY\",\n  \"city\": \"Nagpur\"\n}" }
+          }
+        },
+        {
+          "name": "Delete event",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": { "raw": "{{base_url}}/api/admin/events/1", "host": ["{{base_url}}"], "path": ["api", "admin", "events", "1"] }
+          }
+        }
+      ]
+    }
+  ]
+}
