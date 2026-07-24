@@ -2,7 +2,7 @@
 
 A hybrid entertainment ticketing + event-inventory platform. Public users book
 ticketed events (movies, comedy, amusement, live events); admins additionally manage inventory-type
-events where physical items (chairs, tables, sound, decor) are allocated and tracked.
+events where physical items  are allocated and tracked.
 
 Backend: **Java 17 · Spring Boot 3.x · Spring Security (JWT) · Spring Data JPA · MySQL 8 · Maven.**
 
