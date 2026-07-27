@@ -42,6 +42,7 @@ public class SecurityConfig {
                         // public
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/events/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/shows/**").permitAll()
                         // admin-only management surface
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         // everything else needs a valid token
