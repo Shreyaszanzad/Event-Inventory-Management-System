@@ -2,7 +2,7 @@
 
 A hybrid entertainment ticketing + event-inventory platform. Public users book
 ticketed events (movies, comedy, amusement, live events); admins additionally manage inventory-type
-events where physical items  are allocated and tracked.
+events where physical items are allocated and tracked.
 
 Backend: **Java 17 · Spring Boot 3.x · Spring Security (JWT) · Spring Data JPA · MySQL 8 · Maven.**
 
@@ -10,24 +10,37 @@ Backend: **Java 17 · Spring Boot 3.x · Spring Security (JWT) · Spring Data JP
 
 - JDK 17
 - Maven 3.9+
-- MySQL 8 running locally
+- MySQL 8 running locally (or use the H2 profile below — no DB setup)
 - Lombok plugin enabled in your IDE (IntelliJ/Eclipse/STS)
 
 ## Configure
 
-Edit `src/main/resources/application.properties` and set your MySQL username/password.
+Configuration lives in `src/main/resources/application.properties`. Sensitive values are read from
+**environment variables** with dev-only fallbacks, so you can override them without editing the file:
+
+| Env var | Purpose | Dev fallback |
+|---|---|---|
+| `DB_USERNAME` / `DB_PASSWORD` | MySQL credentials | `root` / `root` |
+| `JWT_SECRET` | JWT signing secret (≥ 32 chars) | dev placeholder |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | first-run admin account | see note below |
+
 The schema `event_inventory` is created automatically on first run (`createDatabaseIfNotExist=true`).
 
 ## Run
 
+**With MySQL:**
 ```bash
 mvn spring-boot:run
 ```
 
-The API starts on `http://localhost:8080`. A default admin is seeded on first startup:
+**Without MySQL (in-memory H2, zero setup — great for quick local testing):**
+```bash
+mvn spring-boot:run -Dspring-boot.run.profiles=h2
+```
 
-- **email:** `admin@eims.com`
-- **password:** `Admin@123`  _(change after first login)_
+The API starts on `http://localhost:8080`. On first startup a **development** admin account is seeded
+from the `app.seed.*` properties (override via `SEED_ADMIN_*` env vars). These are local dev
+credentials only — set real ones and change the password before any real use.
 
 ## Authentication
 
@@ -42,6 +55,12 @@ Send the token on protected calls: `Authorization: Bearer <token>`.
 
 > **OTP is mocked** (`app.otp.mock-enabled=true`): the code is returned in the response as `devOtp`
 > and logged — no SMS is sent. Swap in a real gateway (MSG91/Twilio) inside `OtpService` later.
+
+### Abuse protection (built in)
+- OTP requests are rate-limited per phone and per IP, with a resend cooldown.
+- A new OTP invalidates the previous one; wrong OTP guesses are capped (then the code is burned).
+- Admin login is throttled per email and per IP.
+- Breaching a limit returns **HTTP 429**.
 
 ## Endpoints so far
 
@@ -65,12 +84,25 @@ Import `postman/EventInventory.postman_collection.json`. The login requests auto
 collection variables, so admin/user calls are ready to run. **The Postman collection is the team's
 API contract** — backend re-exports it here on every endpoint change.
 
+## Security notes
+
+- **Never commit real secrets.** Production values (`JWT_SECRET`, DB credentials, admin password)
+  must come from environment variables, not the properties file.
+- The values in `application.properties` are **development fallbacks only** — there is no deployed
+  instance, and they must be replaced before any real deployment.
+- Generate a strong JWT secret with: `openssl rand -base64 48`.
+
+## Contributing
+
+`main` is protected: push a `feature/<name>` branch, open a PR, get CI green, and get an approval
+before merging. Build on **JDK 17** (newer JDKs break Lombok in this setup).
+
 ## Project structure
 
 ```
 com.softpoly.eventinventory
 ├── config/      SecurityConfig, DataSeeder
-├── security/    JwtService, JwtAuthFilter
+├── security/    JwtService, JwtAuthFilter, RateLimiterService
 ├── common/      ApiResponse, exceptions, enums
 ├── auth/        OTP + admin login  (Shreyash)
 ├── user/        user account       (Shreyash)
