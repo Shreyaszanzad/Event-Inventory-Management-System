@@ -38,4 +38,10 @@ public class BookingController {
         Long userId = Long.valueOf(authentication.getName());
         return ApiResponse.ok(bookingService.getMyBooking(userId, id));
     }
+
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<BookingResponse> cancel(@PathVariable Long id, Authentication authentication) {
+        Long userId = Long.valueOf(authentication.getName());
+        return ApiResponse.ok("Booking cancelled", bookingService.cancel(userId, id));
+    }
 }

@@ -2,6 +2,8 @@ package com.softpoly.eventinventory.booking;
 
 import com.softpoly.eventinventory.booking.dto.BookingResponse;
 import com.softpoly.eventinventory.booking.dto.CreateBookingRequest;
+import com.softpoly.eventinventory.common.enums.BookingStatus;
+import com.softpoly.eventinventory.common.enums.PaymentStatus;
 import com.softpoly.eventinventory.common.exception.BadRequestException;
 import com.softpoly.eventinventory.common.exception.ResourceNotFoundException;
 import com.softpoly.eventinventory.show.Show;
@@ -12,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -70,6 +73,38 @@ public class BookingService {
         }
 
         booking.setTotalAmount(total);
+        return BookingResponse.from(bookingRepository.save(booking));
+    }
+
+    /**
+     * Cancels a user's own booking and releases the seats back into inventory.
+     * Allowed only before the show starts and only if not already cancelled.
+     * Payment is status-only: a previously PAID booking is marked REFUNDED.
+     */
+    @Transactional
+    public BookingResponse cancel(Long userId, Long bookingId) {
+        Booking booking = bookingRepository.findByIdAndUserId(bookingId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id " + bookingId));
+
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            throw new BadRequestException("Booking is already cancelled");
+        }
+
+        Show show = showRepository.findById(booking.getShowId()).orElse(null);
+        if (show != null && show.getShowDatetime() != null
+                && show.getShowDatetime().isBefore(LocalDateTime.now())) {
+            throw new BadRequestException("Cannot cancel after the show has started");
+        }
+
+        // Release each tier's seats back into availability.
+        for (BookingItem item : booking.getItems()) {
+            ticketTypeRepository.incrementStock(item.getTicketTypeId(), item.getQuantity());
+        }
+
+        booking.setStatus(BookingStatus.CANCELLED);
+        if (booking.getPaymentStatus() == PaymentStatus.PAID) {
+            booking.setPaymentStatus(PaymentStatus.REFUNDED); // real gateway refund happens later
+        }
         return BookingResponse.from(bookingRepository.save(booking));
     }
 

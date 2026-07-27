@@ -88,6 +88,7 @@ DELETE /api/admin/ticket-types/{id}      delete ticket tier        (ROLE_ADMIN)
 POST   /api/bookings              create a booking         (ROLE_USER)
 GET    /api/bookings/me           my bookings              (ROLE_USER)
 GET    /api/bookings/{id}         my booking detail        (ROLE_USER)
+POST   /api/bookings/{id}/cancel  cancel & release seats   (ROLE_USER)
 ```
 
 Every response uses the envelope: `{ "success": bool, "message": string, "data": ... }`.

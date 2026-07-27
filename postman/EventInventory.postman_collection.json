@@ -269,6 +269,14 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{user_token}}" }],
             "url": { "raw": "{{base_url}}/api/bookings/1", "host": ["{{base_url}}"], "path": ["api", "bookings", "1"] }
           }
+        },
+        {
+          "name": "Cancel booking (user)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{user_token}}" }],
+            "url": { "raw": "{{base_url}}/api/bookings/1/cancel", "host": ["{{base_url}}"], "path": ["api", "bookings", "1", "cancel"] }
+          }
         }
       ]
     }

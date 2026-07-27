@@ -19,4 +19,11 @@ public interface TicketTypeRepository extends JpaRepository<TicketType, Long> {
     @Query("update TicketType t set t.availableQty = t.availableQty - :qty " +
            "where t.id = :id and t.availableQty >= :qty")
     int decrementStock(@Param("id") Long id, @Param("qty") int qty);
+
+    /** Release seats back into inventory when a booking is cancelled (capped at total capacity). */
+    @Modifying
+    @Query("update TicketType t set t.availableQty = " +
+           "case when t.availableQty + :qty > t.totalQty then t.totalQty else t.availableQty + :qty end " +
+           "where t.id = :id")
+    int incrementStock(@Param("id") Long id, @Param("qty") int qty);
 }
