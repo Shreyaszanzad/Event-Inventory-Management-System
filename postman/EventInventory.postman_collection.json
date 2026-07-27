@@ -143,6 +143,134 @@
           }
         }
       ]
+    },
+    {
+      "name": "Shows",
+      "item": [
+        {
+          "name": "Create show (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/events/1/shows", "host": ["{{base_url}}"], "path": ["api", "admin", "events", "1", "shows"] },
+            "body": { "mode": "raw", "raw": "{\n  \"showDatetime\": \"2026-08-01T19:30:00\"\n}" }
+          }
+        },
+        {
+          "name": "List shows for event (public)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/events/1/shows", "host": ["{{base_url}}"], "path": ["api", "events", "1", "shows"] }
+          }
+        },
+        {
+          "name": "Get show (public)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/shows/1", "host": ["{{base_url}}"], "path": ["api", "shows", "1"] }
+          }
+        },
+        {
+          "name": "Update show (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/shows/1", "host": ["{{base_url}}"], "path": ["api", "admin", "shows", "1"] },
+            "body": { "mode": "raw", "raw": "{\n  \"showDatetime\": \"2026-08-02T20:00:00\"\n}" }
+          }
+        },
+        {
+          "name": "Delete show (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": { "raw": "{{base_url}}/api/admin/shows/1", "host": ["{{base_url}}"], "path": ["api", "admin", "shows", "1"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ticket Types",
+      "item": [
+        {
+          "name": "Create ticket type (admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/shows/1/ticket-types", "host": ["{{base_url}}"], "path": ["api", "admin", "shows", "1", "ticket-types"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Gold\",\n  \"price\": 500,\n  \"totalQty\": 100\n}" }
+          }
+        },
+        {
+          "name": "List ticket types for show (public)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/shows/1/ticket-types", "host": ["{{base_url}}"], "path": ["api", "shows", "1", "ticket-types"] }
+          }
+        },
+        {
+          "name": "Update ticket type (admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/admin/ticket-types/1", "host": ["{{base_url}}"], "path": ["api", "admin", "ticket-types", "1"] },
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Gold\",\n  \"price\": 600,\n  \"totalQty\": 120\n}" }
+          }
+        },
+        {
+          "name": "Delete ticket type (admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": { "raw": "{{base_url}}/api/admin/ticket-types/1", "host": ["{{base_url}}"], "path": ["api", "admin", "ticket-types", "1"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "item": [
+        {
+          "name": "Create booking (user)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/bookings", "host": ["{{base_url}}"], "path": ["api", "bookings"] },
+            "body": { "mode": "raw", "raw": "{\n  \"showId\": 1,\n  \"items\": [\n    { \"ticketTypeId\": 1, \"quantity\": 2 }\n  ]\n}" }
+          }
+        },
+        {
+          "name": "My bookings (user)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{user_token}}" }],
+            "url": { "raw": "{{base_url}}/api/bookings/me", "host": ["{{base_url}}"], "path": ["api", "bookings", "me"] }
+          }
+        },
+        {
+          "name": "Get booking by id (user)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{user_token}}" }],
+            "url": { "raw": "{{base_url}}/api/bookings/1", "host": ["{{base_url}}"], "path": ["api", "bookings", "1"] }
+          }
+        }
+      ]
     }
   ]
 }

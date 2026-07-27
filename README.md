@@ -74,6 +74,20 @@ GET    /api/admin/events          list all events          (ROLE_ADMIN)
 POST   /api/admin/events          create event             (ROLE_ADMIN)
 PUT    /api/admin/events/{id}     update event             (ROLE_ADMIN)
 DELETE /api/admin/events/{id}     delete event             (ROLE_ADMIN)
+
+GET    /api/events/{id}/shows            list shows for an event   (public)
+GET    /api/shows/{id}                   get a show                (public)
+GET    /api/shows/{id}/ticket-types      list ticket tiers         (public)
+POST   /api/admin/events/{id}/shows      create show               (ROLE_ADMIN)
+PUT    /api/admin/shows/{id}             update show               (ROLE_ADMIN)
+DELETE /api/admin/shows/{id}             delete show               (ROLE_ADMIN)
+POST   /api/admin/shows/{id}/ticket-types create ticket tier       (ROLE_ADMIN)
+PUT    /api/admin/ticket-types/{id}      update ticket tier        (ROLE_ADMIN)
+DELETE /api/admin/ticket-types/{id}      delete ticket tier        (ROLE_ADMIN)
+
+POST   /api/bookings              create a booking         (ROLE_USER)
+GET    /api/bookings/me           my bookings              (ROLE_USER)
+GET    /api/bookings/{id}         my booking detail        (ROLE_USER)
 ```
 
 Every response uses the envelope: `{ "success": bool, "message": string, "data": ... }`.
