@@ -24,7 +24,7 @@ public class BookingController {
     public ApiResponse<BookingResponse> create(@Valid @RequestBody CreateBookingRequest request,
                                                Authentication authentication) {
         Long userId = Long.valueOf(authentication.getName()); // JWT subject = user id
-        return ApiResponse.ok("Booking confirmed", bookingService.create(userId, request));
+        return ApiResponse.ok("Seats held — confirm to complete the booking", bookingService.create(userId, request));
     }
 
     @GetMapping("/me")
@@ -44,6 +44,12 @@ public class BookingController {
                                                        Authentication authentication) {
         Long userId = Long.valueOf(authentication.getName());
         return ApiResponse.ok(bookingService.getMyBookingByReference(userId, reference));
+    }
+
+    @PostMapping("/{id}/confirm")
+    public ApiResponse<BookingResponse> confirm(@PathVariable Long id, Authentication authentication) {
+        Long userId = Long.valueOf(authentication.getName());
+        return ApiResponse.ok("Booking confirmed", bookingService.confirm(userId, id));
     }
 
     @PostMapping("/{id}/cancel")

@@ -28,12 +28,15 @@ public class BookingService {
     private final BookingRepository bookingRepository;
     private final ShowRepository showRepository;
     private final TicketTypeRepository ticketTypeRepository;
+    private final int holdMinutes;
 
     public BookingService(BookingRepository bookingRepository, ShowRepository showRepository,
-                          TicketTypeRepository ticketTypeRepository) {
+                          TicketTypeRepository ticketTypeRepository,
+                          @org.springframework.beans.factory.annotation.Value("${app.booking.hold-minutes}") int holdMinutes) {
         this.bookingRepository = bookingRepository;
         this.showRepository = showRepository;
         this.ticketTypeRepository = ticketTypeRepository;
+        this.holdMinutes = holdMinutes;
     }
 
     /**
@@ -52,6 +55,8 @@ public class BookingService {
                 .userId(userId)
                 .showId(show.getId())
                 .bookingReference(generateReference())
+                .status(BookingStatus.PENDING)
+                .expiresAt(LocalDateTime.now().plusMinutes(holdMinutes)) // seats are HELD until paid
                 .build();
         BigDecimal total = BigDecimal.ZERO;
 
@@ -86,9 +91,37 @@ public class BookingService {
     }
 
     /**
+     * Confirms a held (PENDING) booking — this stands in for a successful payment.
+     * Rejected if the hold already expired (and releases those seats), or if it is not pending.
+     */
+    @Transactional
+    public BookingResponse confirm(Long userId, Long bookingId) {
+        Booking booking = bookingRepository.findByIdAndUserId(bookingId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id " + bookingId));
+
+        switch (booking.getStatus()) {
+            case CONFIRMED -> throw new BadRequestException("Booking is already confirmed");
+            case CANCELLED -> throw new BadRequestException("Booking was cancelled");
+            case EXPIRED -> throw new BadRequestException("Hold has expired, please book again");
+            case PENDING -> { /* fall through */ }
+        }
+
+        if (booking.getExpiresAt() != null && booking.getExpiresAt().isBefore(LocalDateTime.now())) {
+            releaseSeats(booking);
+            booking.setStatus(BookingStatus.EXPIRED);
+            bookingRepository.save(booking);
+            throw new BadRequestException("Hold has expired, please book again");
+        }
+
+        booking.setStatus(BookingStatus.CONFIRMED);
+        booking.setPaymentStatus(PaymentStatus.PAID); // status-only: real gateway wires in here later
+        booking.setExpiresAt(null);
+        return BookingResponse.from(bookingRepository.save(booking));
+    }
+
+    /**
      * Cancels a user's own booking and releases the seats back into inventory.
-     * Allowed only before the show starts and only if not already cancelled.
-     * Payment is status-only: a previously PAID booking is marked REFUNDED.
+     * Works for a held (PENDING) or CONFIRMED booking; a PAID booking is marked REFUNDED.
      */
     @Transactional
     public BookingResponse cancel(Long userId, Long bookingId) {
@@ -98,6 +131,9 @@ public class BookingService {
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             throw new BadRequestException("Booking is already cancelled");
         }
+        if (booking.getStatus() == BookingStatus.EXPIRED) {
+            throw new BadRequestException("Booking has expired; its seats were already released");
+        }
 
         Show show = showRepository.findById(booking.getShowId()).orElse(null);
         if (show != null && show.getShowDatetime() != null
@@ -105,16 +141,37 @@ public class BookingService {
             throw new BadRequestException("Cannot cancel after the show has started");
         }
 
-        // Release each tier's seats back into availability.
-        for (BookingItem item : booking.getItems()) {
-            ticketTypeRepository.incrementStock(item.getTicketTypeId(), item.getQuantity());
-        }
-
+        releaseSeats(booking);
         booking.setStatus(BookingStatus.CANCELLED);
+        booking.setExpiresAt(null);
         if (booking.getPaymentStatus() == PaymentStatus.PAID) {
             booking.setPaymentStatus(PaymentStatus.REFUNDED); // real gateway refund happens later
         }
         return BookingResponse.from(bookingRepository.save(booking));
+    }
+
+    /**
+     * Releases seats for every PENDING hold whose window has passed. Called by the scheduler
+     * (and directly by tests). Returns how many holds were expired.
+     */
+    @Transactional
+    public int releaseExpiredHolds() {
+        List<Booking> expired = bookingRepository
+                .findByStatusAndExpiresAtBefore(BookingStatus.PENDING, LocalDateTime.now());
+        for (Booking booking : expired) {
+            releaseSeats(booking);
+            booking.setStatus(BookingStatus.EXPIRED);
+            booking.setExpiresAt(null);
+            bookingRepository.save(booking);
+        }
+        return expired.size();
+    }
+
+    /** Adds each line item's seats back into its ticket tier. */
+    private void releaseSeats(Booking booking) {
+        for (BookingItem item : booking.getItems()) {
+            ticketTypeRepository.incrementStock(item.getTicketTypeId(), item.getQuantity());
+        }
     }
 
     @Transactional(readOnly = true)

@@ -271,6 +271,14 @@
           }
         },
         {
+          "name": "Confirm booking (user) — simulates payment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{user_token}}" }],
+            "url": { "raw": "{{base_url}}/api/bookings/1/confirm", "host": ["{{base_url}}"], "path": ["api", "bookings", "1", "confirm"] }
+          }
+        },
+        {
           "name": "Get booking by reference (user)",
           "request": {
             "method": "GET",

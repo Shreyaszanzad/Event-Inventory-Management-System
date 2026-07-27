@@ -14,6 +14,7 @@ public record BookingResponse(
         String paymentStatus,
         String status,
         LocalDateTime bookingDate,
+        LocalDateTime expiresAt,
         List<BookingItemResponse> items
 ) {
     public static BookingResponse from(Booking b) {
@@ -25,6 +26,7 @@ public record BookingResponse(
                 b.getPaymentStatus().name(),
                 b.getStatus().name(),
                 b.getBookingDate(),
+                b.getExpiresAt(),
                 b.getItems().stream().map(BookingItemResponse::from).toList()
         );
     }

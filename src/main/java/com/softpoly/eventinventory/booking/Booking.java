@@ -37,6 +37,9 @@ public class Booking {
     @Column(nullable = false)
     private LocalDateTime bookingDate;
 
+    /** While PENDING, the hold is released after this moment. Null once CONFIRMED. */
+    private LocalDateTime expiresAt;
+
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal totalAmount;
 
@@ -47,6 +50,10 @@ public class Booking {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private BookingStatus status;
+
+    /** Optimistic lock so a confirm and the expiry sweeper can't both mutate one booking. */
+    @Version
+    private Long version;
 
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
@@ -61,6 +68,6 @@ public class Booking {
     void onCreate() {
         if (bookingDate == null) bookingDate = LocalDateTime.now();
         if (paymentStatus == null) paymentStatus = PaymentStatus.PENDING;
-        if (status == null) status = BookingStatus.CONFIRMED;
+        if (status == null) status = BookingStatus.PENDING; // a new booking is a hold until paid
     }
 }
