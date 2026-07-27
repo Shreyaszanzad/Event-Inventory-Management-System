@@ -31,6 +31,10 @@ public class OtpToken {
     @Column(nullable = false)
     private boolean used;
 
+    /** Number of failed verification attempts against this OTP; capped to block brute force. */
+    @Column(nullable = false)
+    private int attempts;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

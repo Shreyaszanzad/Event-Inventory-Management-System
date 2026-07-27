@@ -1,6 +1,7 @@
 package com.softpoly.eventinventory.config;
 
 import com.softpoly.eventinventory.security.JwtAuthFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,9 +24,12 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final List<String> allowedOrigins;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter,
+                          @Value("${app.cors.allowed-origins}") List<String> allowedOrigins) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.allowedOrigins = allowedOrigins;
     }
 
     @Bean
@@ -52,11 +56,11 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
-    /** Dev CORS: allow the frontend dev server to call the API. Tighten origins before deploy. */
+    /** CORS restricted to the frontend origins configured in app.cors.allowed-origins. */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
