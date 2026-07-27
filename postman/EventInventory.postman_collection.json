@@ -271,6 +271,14 @@
           }
         },
         {
+          "name": "Get booking by reference (user)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{user_token}}" }],
+            "url": { "raw": "{{base_url}}/api/bookings/reference/EVB-XXXXXXXX", "host": ["{{base_url}}"], "path": ["api", "bookings", "reference", "EVB-XXXXXXXX"] }
+          }
+        },
+        {
           "name": "Cancel booking (user)",
           "request": {
             "method": "POST",

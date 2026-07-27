@@ -24,6 +24,10 @@ public class Booking {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Public, unique, non-sequential booking code shown to the customer (e.g. EVB-7K9QX2M4). */
+    @Column(nullable = false, unique = true, length = 20)
+    private String bookingReference;
+
     @Column(nullable = false)
     private Long userId;
 

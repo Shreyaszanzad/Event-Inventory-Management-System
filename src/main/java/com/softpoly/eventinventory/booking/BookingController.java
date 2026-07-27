@@ -39,6 +39,13 @@ public class BookingController {
         return ApiResponse.ok(bookingService.getMyBooking(userId, id));
     }
 
+    @GetMapping("/reference/{reference}")
+    public ApiResponse<BookingResponse> getByReference(@PathVariable String reference,
+                                                       Authentication authentication) {
+        Long userId = Long.valueOf(authentication.getName());
+        return ApiResponse.ok(bookingService.getMyBookingByReference(userId, reference));
+    }
+
     @PostMapping("/{id}/cancel")
     public ApiResponse<BookingResponse> cancel(@PathVariable Long id, Authentication authentication) {
         Long userId = Long.valueOf(authentication.getName());

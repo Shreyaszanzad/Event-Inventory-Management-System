@@ -85,11 +85,15 @@ POST   /api/admin/shows/{id}/ticket-types create ticket tier       (ROLE_ADMIN)
 PUT    /api/admin/ticket-types/{id}      update ticket tier        (ROLE_ADMIN)
 DELETE /api/admin/ticket-types/{id}      delete ticket tier        (ROLE_ADMIN)
 
-POST   /api/bookings              create a booking         (ROLE_USER)
-GET    /api/bookings/me           my bookings              (ROLE_USER)
-GET    /api/bookings/{id}         my booking detail        (ROLE_USER)
-POST   /api/bookings/{id}/cancel  cancel & release seats   (ROLE_USER)
+POST   /api/bookings                     create a booking          (ROLE_USER)
+GET    /api/bookings/me                   my bookings               (ROLE_USER)
+GET    /api/bookings/{id}                 my booking detail         (ROLE_USER)
+GET    /api/bookings/reference/{ref}      look up by booking code   (ROLE_USER)
+POST   /api/bookings/{id}/cancel          cancel & release seats    (ROLE_USER)
 ```
+
+Each booking gets a unique, non-sequential **booking reference** (e.g. `EVB-7K9QX2M4`) returned in
+every booking response and usable for lookup.
 
 Every response uses the envelope: `{ "success": bool, "message": string, "data": ... }`.
 

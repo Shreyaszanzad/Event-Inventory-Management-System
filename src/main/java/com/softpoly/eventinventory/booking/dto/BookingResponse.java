@@ -8,6 +8,7 @@ import java.util.List;
 
 public record BookingResponse(
         Long id,
+        String bookingReference,
         Long showId,
         BigDecimal totalAmount,
         String paymentStatus,
@@ -18,6 +19,7 @@ public record BookingResponse(
     public static BookingResponse from(Booking b) {
         return new BookingResponse(
                 b.getId(),
+                b.getBookingReference(),
                 b.getShowId(),
                 b.getTotalAmount(),
                 b.getPaymentStatus().name(),

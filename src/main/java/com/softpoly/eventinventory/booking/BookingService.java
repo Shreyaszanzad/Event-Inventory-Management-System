@@ -14,11 +14,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
 public class BookingService {
+
+    // Excludes easily-confused characters (0/O, 1/I) so codes are readable on a ticket.
+    private static final String REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final BookingRepository bookingRepository;
     private final ShowRepository showRepository;
@@ -43,7 +48,11 @@ public class BookingService {
             throw new BadRequestException("This show is not available for booking");
         }
 
-        Booking booking = Booking.builder().userId(userId).showId(show.getId()).build();
+        Booking booking = Booking.builder()
+                .userId(userId)
+                .showId(show.getId())
+                .bookingReference(generateReference())
+                .build();
         BigDecimal total = BigDecimal.ZERO;
 
         for (CreateBookingRequest.Item item : request.items()) {
@@ -120,5 +129,25 @@ public class BookingService {
         Booking booking = bookingRepository.findByIdAndUserId(bookingId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id " + bookingId));
         return BookingResponse.from(booking);
+    }
+
+    @Transactional(readOnly = true)
+    public BookingResponse getMyBookingByReference(Long userId, String reference) {
+        Booking booking = bookingRepository.findByBookingReferenceAndUserId(reference, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Booking not found with reference " + reference));
+        return BookingResponse.from(booking);
+    }
+
+    /** Generates a unique, human-readable booking reference, retrying on the rare collision. */
+    private String generateReference() {
+        String reference;
+        do {
+            StringBuilder sb = new StringBuilder("EVB-");
+            for (int i = 0; i < 8; i++) {
+                sb.append(REF_ALPHABET.charAt(RANDOM.nextInt(REF_ALPHABET.length())));
+            }
+            reference = sb.toString();
+        } while (bookingRepository.existsByBookingReference(reference));
+        return reference;
     }
 }
