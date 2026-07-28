@@ -6,6 +6,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.math.BigDecimal;
+import com.softpoly.eventinventory.common.time.AppTime;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +68,7 @@ public class Booking {
 
     @PrePersist
     void onCreate() {
-        if (bookingDate == null) bookingDate = LocalDateTime.now();
+        if (bookingDate == null) bookingDate = AppTime.now();
         if (paymentStatus == null) paymentStatus = PaymentStatus.PENDING;
         if (status == null) status = BookingStatus.PENDING; // a new booking is a hold until paid
     }

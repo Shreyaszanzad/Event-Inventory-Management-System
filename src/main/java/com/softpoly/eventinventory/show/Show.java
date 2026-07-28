@@ -3,6 +3,8 @@ package com.softpoly.eventinventory.show;
 import jakarta.persistence.*;
 import lombok.*;
 
+import com.softpoly.eventinventory.common.time.AppTime;
+
 import java.time.LocalDateTime;
 
 /** A scheduled showtime for a TICKETED event. A ticketed event can have many shows. */
@@ -33,7 +35,7 @@ public class Show {
 
     @PrePersist
     void onCreate() {
-        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (createdAt == null) createdAt = AppTime.now();
         if (status == null) status = "ACTIVE";
     }
 }
