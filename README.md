@@ -91,7 +91,18 @@ GET    /api/bookings/me                   my bookings               (ROLE_USER)
 GET    /api/bookings/{id}                 my booking detail         (ROLE_USER)
 GET    /api/bookings/reference/{ref}      look up by booking code   (ROLE_USER)
 POST   /api/bookings/{id}/cancel          cancel & release seats    (ROLE_USER)
+
+POST   /api/admin/invoices                generate invoice from booking (ROLE_ADMIN)
+GET    /api/admin/invoices                list invoices             (ROLE_ADMIN)
+GET    /api/admin/invoices/{id}           invoice detail            (ROLE_ADMIN)
+POST   /api/admin/invoices/{id}/payments  record a payment          (ROLE_ADMIN)
+GET    /api/invoices/me                   my invoices               (ROLE_USER)
+GET    /api/invoices/{id}                 my invoice detail         (ROLE_USER)
 ```
+
+**Billing:** an admin generates one **invoice** per booking (`subtotal − discount = total`) and records
+**payments** against it (partial payments supported; overpaying is rejected). When an invoice is fully
+paid, the booking's payment flag is synced to `PAID`.
 
 **Booking lifecycle:** creating a booking places a **hold** (`PENDING`) that reserves the seats and
 expires after `app.booking.hold-minutes`. Confirm it (stand-in for payment) to secure it
