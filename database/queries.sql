@@ -1,1102 +1,954 @@
-```sql
--- ============================================================
--- EVENT & INVENTORY MANAGEMENT SYSTEM
+-- ============================================================================
+-- Event & Inventory Management System
 -- queries.sql
--- Common SQL Queries for Testing and Backend Development
--- ============================================================
+-- Database: event_inventory
+-- ============================================================================
 
-USE event_booking_db;
-
-
--- ============================================================
--- 1. DATABASE / TABLE CHECK
--- ============================================================
-
--- Show all tables
-SHOW TABLES;
+USE event_inventory;
 
 
--- Check table structures
-DESC users;
-DESC otp;
-DESC events;
-DESC shows;
-DESC ticket_types;
-DESC bookings;
-DESC inventory;
-DESC event_inventory;
+-- ============================================================================
+-- 1. BASIC DATABASE QUERIES
+-- ============================================================================
 
-
--- ============================================================
--- 2. USER QUERIES
--- ============================================================
-
--- Get all users
+-- Show all users
 SELECT *
 FROM users;
 
-
--- Get user by ID
+-- Show all events
 SELECT *
-FROM users
-WHERE user_id = 1;
+FROM events;
 
-
--- Find user by mobile
+-- Show all shows
 SELECT *
+FROM shows;
+
+-- Show all ticket types
+SELECT *
+FROM ticket_types;
+
+-- Show all bookings
+SELECT *
+FROM bookings;
+
+-- Show all invoices
+SELECT *
+FROM invoices;
+
+-- Show all payments
+SELECT *
+FROM payments;
+
+
+-- ============================================================================
+-- 2. USER QUERIES
+-- ============================================================================
+
+-- Get all active users
+SELECT
+    id,
+    name,
+    phone,
+    email,
+    role,
+    status,
+    created_at
 FROM users
-WHERE mobile = '9876543210';
+WHERE status = 'ACTIVE';
+
+
+-- Get all admins
+SELECT
+    id,
+    name,
+    email,
+    phone
+FROM users
+WHERE role = 'ADMIN';
+
+
+-- Get all normal users
+SELECT
+    id,
+    name,
+    email,
+    phone
+FROM users
+WHERE role = 'USER';
 
 
 -- Find user by email
 SELECT *
 FROM users
-WHERE email = 'achal@gmail.com';
+WHERE email = 'achal@example.com';
 
 
--- Get all admin users
-SELECT
-    user_id,
-    name,
-    mobile,
-    email,
-    role
+-- Find user by phone
+SELECT *
 FROM users
-WHERE role = 'ADMIN';
+WHERE phone = '9876543211';
 
 
--- Get all verified users
+-- ============================================================================
+-- 3. EVENT QUERIES
+-- ============================================================================
+
+-- Get all active events
 SELECT
-    user_id,
-    name,
-    mobile,
-    email
-FROM users
-WHERE is_verified = TRUE;
+    id,
+    title,
+    type,
+    category,
+    venue_name,
+    city,
+    start_time,
+    status
+FROM events
+WHERE status = 'ACTIVE';
 
 
--- Update user verification
-UPDATE users
-SET is_verified = TRUE
-WHERE user_id = 1;
+-- Get only ticketed events
+SELECT
+    id,
+    title,
+    category,
+    venue_name,
+    city,
+    start_time
+FROM events
+WHERE type = 'TICKETED';
 
 
--- Update user details
-UPDATE users
-SET
-    name = 'Achal Chopade',
-    email = 'achal.updated@gmail.com'
-WHERE user_id = 1;
+-- Get only inventory events
+SELECT
+    id,
+    title,
+    category,
+    venue_name,
+    city,
+    start_time
+FROM events
+WHERE type = 'INVENTORY';
 
 
--- ============================================================
--- 3. OTP QUERIES
--- ============================================================
-
--- Get latest OTP for a mobile number
-SELECT *
-FROM otp
-WHERE mobile = '9876543210'
-ORDER BY otp_id DESC
-LIMIT 1;
-
-
--- Verify OTP
-UPDATE otp
-SET verified = TRUE
-WHERE mobile = '9876543210'
-  AND otp = '123456'
-  AND expires_at > NOW()
-  AND verified = FALSE;
-
-
--- Find valid OTP
-SELECT *
-FROM otp
-WHERE mobile = '9876543210'
-  AND otp = '123456'
-  AND expires_at > NOW()
-  AND verified = FALSE
-ORDER BY otp_id DESC
-LIMIT 1;
-
-
--- Delete expired OTPs
-DELETE FROM otp
-WHERE expires_at < NOW();
-
-
--- ============================================================
--- 4. EVENT QUERIES
--- ============================================================
-
--- Get all events
+-- Get events by category
 SELECT *
 FROM events
-ORDER BY created_at DESC;
+WHERE category = 'COMEDY';
 
 
--- Get published events
+-- Get events by city
 SELECT *
 FROM events
-WHERE status = 'PUBLISHED'
-ORDER BY created_at DESC;
+WHERE city = 'Pune';
 
 
--- Get event by ID
-SELECT *
-FROM events
-WHERE event_id = 1;
-
-
--- Search event by title
+-- Search events by title
 SELECT *
 FROM events
 WHERE title LIKE '%Music%';
 
 
--- Search events by city
+-- Search events by title or city
 SELECT *
 FROM events
-WHERE city = 'Pune'
-  AND status = 'PUBLISHED';
+WHERE title LIKE '%Music%'
+   OR city LIKE '%Pune%';
 
 
--- Search events by category
-SELECT *
-FROM events
-WHERE category = 'Music'
-  AND status = 'PUBLISHED';
-
-
--- Search by city and category
-SELECT *
-FROM events
-WHERE city = 'Pune'
-  AND category = 'Music'
-  AND status = 'PUBLISHED';
-
-
--- Search event by title, city or category
-SELECT *
-FROM events
-WHERE
-    title LIKE '%Tech%'
-    OR city LIKE '%Pune%'
-    OR category LIKE '%Technology%';
-
-
--- Get events by organizer
-SELECT *
-FROM events
-WHERE organizer_name = 'Event Management Pvt Ltd';
-
-
--- Get cancelled events
-SELECT *
-FROM events
-WHERE status = 'CANCELLED';
-
-
--- Get draft events
-SELECT *
-FROM events
-WHERE status = 'DRAFT';
-
-
--- Publish an event
-UPDATE events
-SET status = 'PUBLISHED'
-WHERE event_id = 1;
-
-
--- Cancel an event
-UPDATE events
-SET status = 'CANCELLED'
-WHERE event_id = 1;
-
-
--- ============================================================
--- 5. SHOW QUERIES
--- ============================================================
+-- ============================================================================
+-- 4. SHOW QUERIES
+-- ============================================================================
 
 -- Get all shows
 SELECT *
-FROM shows
-ORDER BY show_date, show_time;
+FROM shows;
 
 
 -- Get shows for a particular event
-SELECT *
-FROM shows
-WHERE event_id = 1
-ORDER BY show_date, show_time;
-
-
--- Get upcoming active shows
 SELECT
-    s.show_id,
+    s.id,
+    s.event_id,
     e.title AS event_name,
-    s.show_date,
-    s.show_time,
-    s.venue,
-    s.total_seats,
-    s.available_seats
+    s.show_datetime,
+    s.status
 FROM shows s
 JOIN events e
-    ON s.event_id = e.event_id
-WHERE s.show_date >= CURDATE()
-  AND s.status = 'ACTIVE'
-ORDER BY s.show_date, s.show_time;
+    ON s.event_id = e.id
+WHERE s.event_id = 1;
 
 
--- Get shows where seats are available
+-- Get all active shows with event information
 SELECT
-    s.show_id,
+    s.id AS show_id,
+    e.id AS event_id,
     e.title AS event_name,
-    s.show_date,
-    s.show_time,
-    s.available_seats
+    e.category,
+    e.venue_name,
+    e.city,
+    s.show_datetime,
+    s.status
 FROM shows s
 JOIN events e
-    ON s.event_id = e.event_id
-WHERE s.available_seats > 0
-  AND s.status = 'ACTIVE';
+    ON s.event_id = e.id
+WHERE s.status = 'ACTIVE';
 
 
--- Get sold-out shows
-SELECT
-    s.show_id,
-    e.title AS event_name,
-    s.show_date,
-    s.show_time
-FROM shows s
-JOIN events e
-    ON s.event_id = e.event_id
-WHERE s.available_seats = 0;
-
-
--- ============================================================
--- 6. TICKET TYPE QUERIES
--- ============================================================
+-- ============================================================================
+-- 5. TICKET TYPE QUERIES
+-- ============================================================================
 
 -- Get all ticket types
 SELECT *
 FROM ticket_types;
 
 
--- Get tickets for a show
+-- Get ticket types for a particular show
 SELECT
-    ticket_type_id,
-    ticket_name,
-    price,
-    total_tickets,
-    available_tickets,
-    description
-FROM ticket_types
-WHERE show_id = 1;
+    tt.id,
+    tt.show_id,
+    tt.name,
+    tt.price,
+    tt.total_qty,
+    tt.available_qty
+FROM ticket_types tt
+WHERE tt.show_id = 1;
 
 
--- Get available ticket types
+-- Get ticket types with available tickets
 SELECT
-    ticket_type_id,
-    ticket_name,
+    id,
+    show_id,
+    name,
     price,
-    available_tickets
+    total_qty,
+    available_qty
 FROM ticket_types
-WHERE show_id = 1
-  AND available_tickets > 0;
+WHERE available_qty > 0;
 
 
--- Get ticket type by ID
-SELECT *
-FROM ticket_types
-WHERE ticket_type_id = 1;
+-- Get sold quantity
+SELECT
+    id,
+    name,
+    total_qty,
+    available_qty,
+    (total_qty - available_qty) AS sold_qty
+FROM ticket_types;
 
 
--- Get cheapest ticket for a show
-SELECT *
-FROM ticket_types
-WHERE show_id = 1
-ORDER BY price ASC
-LIMIT 1;
+-- Get ticket availability percentage
+SELECT
+    id,
+    name,
+    total_qty,
+    available_qty,
+    ROUND(
+        (available_qty / NULLIF(total_qty, 0)) * 100,
+        2
+    ) AS availability_percentage
+FROM ticket_types;
 
 
--- Get most expensive ticket for a show
-SELECT *
-FROM ticket_types
-WHERE show_id = 1
-ORDER BY price DESC
-LIMIT 1;
+-- ============================================================================
+-- 6. EVENT + SHOW + TICKET INFORMATION
+-- ============================================================================
+
+-- Complete ticket catalog
+SELECT
+    e.id AS event_id,
+    e.title AS event_name,
+    e.category,
+    e.city,
+    e.venue_name,
+    s.id AS show_id,
+    s.show_datetime,
+    tt.id AS ticket_type_id,
+    tt.name AS ticket_type,
+    tt.price,
+    tt.total_qty,
+    tt.available_qty
+FROM events e
+JOIN shows s
+    ON e.id = s.event_id
+JOIN ticket_types tt
+    ON s.id = tt.show_id
+WHERE e.status = 'ACTIVE'
+  AND s.status = 'ACTIVE';
 
 
--- ============================================================
+-- ============================================================================
 -- 7. BOOKING QUERIES
--- ============================================================
+-- ============================================================================
 
 -- Get all bookings
 SELECT *
-FROM bookings
-ORDER BY booked_at DESC;
+FROM bookings;
 
 
--- Get booking by booking code
-SELECT *
-FROM bookings
-WHERE booking_code = 'BK20260001';
-
-
--- Get booking by booking ID
-SELECT *
-FROM bookings
-WHERE booking_id = 1;
-
-
--- Get all bookings of a particular user
-SELECT *
-FROM bookings
-WHERE user_id = 1
-ORDER BY booked_at DESC;
-
-
--- Get all confirmed bookings
-SELECT *
-FROM bookings
-WHERE booking_status = 'CONFIRMED';
-
-
--- Get all pending bookings
-SELECT *
-FROM bookings
-WHERE booking_status = 'PENDING';
-
-
--- Get all cancelled bookings
-SELECT *
-FROM bookings
-WHERE booking_status = 'CANCELLED';
-
-
--- Get all paid bookings
-SELECT *
-FROM bookings
-WHERE payment_status = 'PAID';
-
-
--- Get all pending payments
-SELECT *
-FROM bookings
-WHERE payment_status = 'PENDING';
-
-
--- ============================================================
--- 8. COMPLETE BOOKING DETAILS
--- ============================================================
-
+-- Get confirmed bookings
 SELECT
-    b.booking_id,
-    b.booking_code,
-
-    u.name AS customer_name,
-    u.mobile,
-    u.email,
-
-    e.title AS event_name,
-    e.category,
-    e.city,
-    e.venue AS event_venue,
-
-    s.show_date,
-    s.show_time,
-    s.venue AS show_venue,
-
-    tt.ticket_name,
-    tt.price,
-
-    b.quantity,
-    b.total_amount,
-
-    b.payment_status,
-    b.booking_status,
-
-    b.qr_code,
-    b.booked_at
-
-FROM bookings b
-
-JOIN users u
-    ON b.user_id = u.user_id
-
-JOIN events e
-    ON b.event_id = e.event_id
-
-JOIN shows s
-    ON b.show_id = s.show_id
-
-JOIN ticket_types tt
-    ON b.ticket_type_id = tt.ticket_type_id
-
-WHERE b.booking_code = 'BK20260001';
-
-
--- ============================================================
--- 9. USER BOOKING HISTORY
--- ============================================================
-
-SELECT
-    b.booking_code,
-    e.title AS event_name,
-    s.show_date,
-    s.show_time,
-    tt.ticket_name,
-    b.quantity,
-    b.total_amount,
-    b.payment_status,
-    b.booking_status,
-    b.booked_at
-
-FROM bookings b
-
-JOIN events e
-    ON b.event_id = e.event_id
-
-JOIN shows s
-    ON b.show_id = s.show_id
-
-JOIN ticket_types tt
-    ON b.ticket_type_id = tt.ticket_type_id
-
-WHERE b.user_id = 1
-
-ORDER BY b.booked_at DESC;
-
-
--- ============================================================
--- 10. EVENT BOOKING REPORT
--- ============================================================
-
-SELECT
-    e.event_id,
-    e.title AS event_name,
-
-    COUNT(b.booking_id) AS total_bookings,
-
-    COALESCE(
-        SUM(
-            CASE
-                WHEN b.booking_status = 'CONFIRMED'
-                THEN b.quantity
-                ELSE 0
-            END
-        ),
-        0
-    ) AS tickets_sold,
-
-    COALESCE(
-        SUM(
-            CASE
-                WHEN b.payment_status = 'PAID'
-                 AND b.booking_status = 'CONFIRMED'
-                THEN b.total_amount
-                ELSE 0
-            END
-        ),
-        0
-    ) AS total_revenue
-
-FROM events e
-
-LEFT JOIN bookings b
-    ON e.event_id = b.event_id
-
-GROUP BY
-    e.event_id,
-    e.title
-
-ORDER BY total_revenue DESC;
-
-
--- ============================================================
--- 11. REVENUE QUERIES
--- ============================================================
-
--- Total revenue
-SELECT
-    COALESCE(SUM(total_amount), 0) AS total_revenue
-FROM bookings
-WHERE payment_status = 'PAID'
-  AND booking_status = 'CONFIRMED';
-
-
--- Revenue by event
-SELECT
-    e.event_id,
-    e.title AS event_name,
-
-    COALESCE(
-        SUM(
-            CASE
-                WHEN b.payment_status = 'PAID'
-                 AND b.booking_status = 'CONFIRMED'
-                THEN b.total_amount
-                ELSE 0
-            END
-        ),
-        0
-    ) AS revenue
-
-FROM events e
-
-LEFT JOIN bookings b
-    ON e.event_id = b.event_id
-
-GROUP BY
-    e.event_id,
-    e.title
-
-ORDER BY revenue DESC;
-
-
--- Revenue by category
-SELECT
-    e.category,
-
-    COALESCE(
-        SUM(
-            CASE
-                WHEN b.payment_status = 'PAID'
-                 AND b.booking_status = 'CONFIRMED'
-                THEN b.total_amount
-                ELSE 0
-            END
-        ),
-        0
-    ) AS revenue
-
-FROM events e
-
-LEFT JOIN bookings b
-    ON e.event_id = b.event_id
-
-GROUP BY e.category
-
-ORDER BY revenue DESC;
-
-
--- ============================================================
--- 12. POPULAR EVENTS
--- ============================================================
-
-SELECT
-    e.event_id,
-    e.title AS event_name,
-
-    COALESCE(
-        SUM(
-            CASE
-                WHEN b.booking_status = 'CONFIRMED'
-                THEN b.quantity
-                ELSE 0
-            END
-        ),
-        0
-    ) AS tickets_sold
-
-FROM events e
-
-LEFT JOIN bookings b
-    ON e.event_id = b.event_id
-
-GROUP BY
-    e.event_id,
-    e.title
-
-ORDER BY tickets_sold DESC;
-
-
--- ============================================================
--- 13. USER BOOKING STATISTICS
--- ============================================================
-
-SELECT
-    u.user_id,
-    u.name,
-
-    COUNT(b.booking_id) AS total_bookings,
-
-    COALESCE(
-        SUM(
-            CASE
-                WHEN b.booking_status = 'CONFIRMED'
-                THEN b.total_amount
-                ELSE 0
-            END
-        ),
-        0
-    ) AS total_spent
-
-FROM users u
-
-LEFT JOIN bookings b
-    ON u.user_id = b.user_id
-
-GROUP BY
-    u.user_id,
-    u.name
-
-ORDER BY total_spent DESC;
-
-
--- ============================================================
--- 14. INVENTORY QUERIES
--- ============================================================
-
--- Get all inventory
-SELECT *
-FROM inventory
-ORDER BY item_name;
-
-
--- Get available inventory
-SELECT
-    inventory_id,
-    item_name,
-    category,
-    quantity,
-    available_quantity,
-    supplier,
-    unit_price,
-    status
-
-FROM inventory
-
-WHERE available_quantity > 0
-  AND status = 'AVAILABLE';
-
-
--- Get inventory by category
-SELECT *
-FROM inventory
-WHERE category = 'Furniture';
-
-
--- Get inventory by status
-SELECT *
-FROM inventory
-WHERE status = 'AVAILABLE';
-
-
--- Search inventory by item name
-SELECT *
-FROM inventory
-WHERE item_name LIKE '%Chair%';
-
-
--- Find low-stock inventory
-SELECT
-    inventory_id,
-    item_name,
-    quantity,
-    available_quantity
-
-FROM inventory
-
-WHERE available_quantity <= 10
-
-ORDER BY available_quantity ASC;
-
-
--- Calculate total inventory value
-SELECT
-    COALESCE(
-        SUM(quantity * unit_price),
-        0
-    ) AS total_inventory_value
-
-FROM inventory;
-
-
--- Calculate available inventory value
-SELECT
-    COALESCE(
-        SUM(available_quantity * unit_price),
-        0
-    ) AS available_inventory_value
-
-FROM inventory;
-
-
--- ============================================================
--- 15. EVENT INVENTORY QUERIES
--- ============================================================
-
--- Get inventory assigned to one event
-SELECT
-
-    e.event_id,
-    e.title AS event_name,
-
-    i.inventory_id,
-    i.item_name,
-    i.category,
-
-    ei.assigned_quantity,
-    ei.returned_quantity,
-
-    (
-        ei.assigned_quantity
-        - ei.returned_quantity
-    ) AS pending_return,
-
-    ei.remarks
-
-FROM event_inventory ei
-
-JOIN events e
-    ON ei.event_id = e.event_id
-
-JOIN inventory i
-    ON ei.inventory_id = i.inventory_id
-
-WHERE ei.event_id = 1;
-
-
--- Get all event inventory assignments
-SELECT
-
-    e.title AS event_name,
-
-    i.item_name,
-    i.category,
-
-    ei.assigned_quantity,
-    ei.returned_quantity,
-
-    (
-        ei.assigned_quantity
-        - ei.returned_quantity
-    ) AS pending_return
-
-FROM event_inventory ei
-
-JOIN events e
-    ON ei.event_id = e.event_id
-
-JOIN inventory i
-    ON ei.inventory_id = i.inventory_id
-
-ORDER BY e.title, i.item_name;
-
-
--- Get inventory which has not been completely returned
-SELECT
-
-    e.title AS event_name,
-
-    i.item_name,
-
-    ei.assigned_quantity,
-
-    ei.returned_quantity,
-
-    (
-        ei.assigned_quantity
-        - ei.returned_quantity
-    ) AS pending_return
-
-FROM event_inventory ei
-
-JOIN events e
-    ON ei.event_id = e.event_id
-
-JOIN inventory i
-    ON ei.inventory_id = i.inventory_id
-
-WHERE ei.returned_quantity < ei.assigned_quantity;
-
-
--- ============================================================
--- 16. ADMIN DASHBOARD
--- ============================================================
-
-SELECT
-
-    (
-        SELECT COUNT(*)
-        FROM users
-        WHERE role = 'USER'
-    ) AS total_users,
-
-    (
-        SELECT COUNT(*)
-        FROM events
-        WHERE status = 'PUBLISHED'
-    ) AS published_events,
-
-    (
-        SELECT COUNT(*)
-        FROM bookings
-        WHERE booking_status = 'CONFIRMED'
-    ) AS confirmed_bookings,
-
-    (
-        SELECT COALESCE(SUM(total_amount), 0)
-        FROM bookings
-        WHERE payment_status = 'PAID'
-          AND booking_status = 'CONFIRMED'
-    ) AS total_revenue,
-
-    (
-        SELECT COUNT(*)
-        FROM inventory
-    ) AS total_inventory_items;
-
-
--- ============================================================
--- 17. UPCOMING EVENTS
--- ============================================================
-
-SELECT DISTINCT
-
-    e.event_id,
-    e.title,
-    e.category,
-    e.city,
-
-    MIN(s.show_date) AS next_show_date
-
-FROM events e
-
-JOIN shows s
-    ON e.event_id = s.event_id
-
-WHERE e.status = 'PUBLISHED'
-
-  AND s.status = 'ACTIVE'
-
-  AND s.show_date >= CURDATE()
-
-GROUP BY
-    e.event_id,
-    e.title,
-    e.category,
-    e.city
-
-ORDER BY next_show_date;
-
-
--- ============================================================
--- 18. EVENT DETAILS WITH SHOWS AND TICKETS
--- ============================================================
-
-SELECT
-
-    e.event_id,
-    e.title AS event_name,
-    e.category,
-    e.city,
-
-    s.show_id,
-    s.show_date,
-    s.show_time,
-    s.available_seats,
-
-    tt.ticket_type_id,
-    tt.ticket_name,
-    tt.price,
-    tt.available_tickets
-
-FROM events e
-
-JOIN shows s
-    ON e.event_id = s.event_id
-
-JOIN ticket_types tt
-    ON s.show_id = tt.show_id
-
-WHERE e.event_id = 1
-
-ORDER BY
-    s.show_date,
-    s.show_time,
-    tt.price;
-
-
--- ============================================================
--- 19. BOOKING COUNT BY EVENT
--- ============================================================
-
-SELECT
-
-    e.title AS event_name,
-
-    COUNT(b.booking_id) AS booking_count
-
-FROM events e
-
-LEFT JOIN bookings b
-    ON e.event_id = b.event_id
-
-GROUP BY
-    e.event_id,
-    e.title
-
-ORDER BY booking_count DESC;
-
-
--- ============================================================
--- 20. TICKETS SOLD BY TICKET TYPE
--- ============================================================
-
-SELECT
-
-    e.title AS event_name,
-
-    tt.ticket_name,
-
-    SUM(
-        CASE
-            WHEN b.booking_status = 'CONFIRMED'
-            THEN b.quantity
-            ELSE 0
-        END
-    ) AS tickets_sold
-
-FROM bookings b
-
-JOIN events e
-    ON b.event_id = e.event_id
-
-JOIN ticket_types tt
-    ON b.ticket_type_id = tt.ticket_type_id
-
-GROUP BY
-    e.event_id,
-    e.title,
-    tt.ticket_type_id,
-    tt.ticket_name
-
-ORDER BY tickets_sold DESC;
-
-
--- ============================================================
--- 21. PAYMENT STATUS REPORT
--- ============================================================
-
-SELECT
-
+    id,
+    booking_reference,
+    user_id,
+    show_id,
+    booking_date,
+    total_amount,
     payment_status,
-
-    COUNT(*) AS total_bookings,
-
-    COALESCE(
-        SUM(total_amount),
-        0
-    ) AS total_amount
-
+    status
 FROM bookings
+WHERE status = 'CONFIRMED';
 
-GROUP BY payment_status
 
+-- Get pending bookings
+SELECT
+    id,
+    booking_reference,
+    user_id,
+    show_id,
+    booking_date,
+    expires_at,
+    total_amount,
+    payment_status,
+    status
+FROM bookings
+WHERE status = 'PENDING';
+
+
+-- Get cancelled bookings
+SELECT *
+FROM bookings
+WHERE status = 'CANCELLED';
+
+
+-- Get bookings of a particular user
+SELECT
+    b.id,
+    b.booking_reference,
+    b.booking_date,
+    b.total_amount,
+    b.payment_status,
+    b.status
+FROM bookings b
+WHERE b.user_id = 2;
+
+
+-- Find booking by booking reference
+SELECT *
+FROM bookings
+WHERE booking_reference = 'BK20260001';
+
+
+-- ============================================================================
+-- 8. BOOKING + USER INFORMATION
+-- ============================================================================
+
+SELECT
+    b.id AS booking_id,
+    b.booking_reference,
+    u.id AS user_id,
+    u.name AS customer_name,
+    u.email,
+    u.phone,
+    b.booking_date,
+    b.total_amount,
+    b.payment_status,
+    b.status
+FROM bookings b
+JOIN users u
+    ON b.user_id = u.id;
+
+
+-- ============================================================================
+-- 9. BOOKING + EVENT + SHOW INFORMATION
+-- ============================================================================
+
+SELECT
+    b.id AS booking_id,
+    b.booking_reference,
+    u.name AS customer_name,
+    e.title AS event_name,
+    e.category,
+    e.venue_name,
+    e.city,
+    s.show_datetime,
+    b.booking_date,
+    b.total_amount,
+    b.payment_status,
+    b.status
+FROM bookings b
+JOIN users u
+    ON b.user_id = u.id
+JOIN shows s
+    ON b.show_id = s.id
+JOIN events e
+    ON s.event_id = e.id;
+
+
+-- ============================================================================
+-- 10. COMPLETE BOOKING DETAILS
+-- ============================================================================
+
+SELECT
+    b.booking_reference,
+    u.name AS customer_name,
+    u.email,
+    e.title AS event_name,
+    e.category,
+    e.venue_name,
+    e.city,
+    s.show_datetime,
+    tt.name AS ticket_type,
+    bi.quantity,
+    bi.unit_price,
+    (bi.quantity * bi.unit_price) AS item_total,
+    b.total_amount,
+    b.payment_status,
+    b.status
+FROM booking_items bi
+JOIN bookings b
+    ON bi.booking_id = b.id
+JOIN users u
+    ON b.user_id = u.id
+JOIN ticket_types tt
+    ON bi.ticket_type_id = tt.id
+JOIN shows s
+    ON b.show_id = s.id
+JOIN events e
+    ON s.event_id = e.id
+ORDER BY b.booking_date DESC;
+
+
+-- ============================================================================
+-- 11. BOOKING ITEM QUERIES
+-- ============================================================================
+
+-- Get booking items
+SELECT *
+FROM booking_items;
+
+
+-- Get items for a specific booking
+SELECT
+    bi.id,
+    bi.booking_id,
+    tt.name AS ticket_type,
+    bi.quantity,
+    bi.unit_price,
+    (bi.quantity * bi.unit_price) AS total
+FROM booking_items bi
+JOIN ticket_types tt
+    ON bi.ticket_type_id = tt.id
+WHERE bi.booking_id = 1;
+
+
+-- Calculate total from booking items
+SELECT
+    booking_id,
+    SUM(quantity * unit_price) AS calculated_total
+FROM booking_items
+GROUP BY booking_id;
+
+
+-- ============================================================================
+-- 12. INVOICE QUERIES
+-- ============================================================================
+
+-- Get all invoices
+SELECT *
+FROM invoices;
+
+
+-- Get paid invoices
+SELECT
+    invoice_number,
+    booking_id,
+    user_id,
+    subtotal,
+    discount,
+    total_amount,
+    paid_amount,
+    balance_amount,
+    status,
+    invoice_date
+FROM invoices
+WHERE status = 'PAID';
+
+
+-- Get unpaid invoices
+SELECT
+    invoice_number,
+    booking_id,
+    user_id,
+    total_amount,
+    paid_amount,
+    balance_amount,
+    status
+FROM invoices
+WHERE status = 'UNPAID';
+
+
+-- Get invoice by invoice number
+SELECT *
+FROM invoices
+WHERE invoice_number = 'INV20260001';
+
+
+-- ============================================================================
+-- 13. INVOICE + USER + BOOKING INFORMATION
+-- ============================================================================
+
+SELECT
+    i.invoice_number,
+    u.name AS customer_name,
+    u.email,
+    b.booking_reference,
+    i.subtotal,
+    i.discount,
+    i.total_amount,
+    i.paid_amount,
+    i.balance_amount,
+    i.status,
+    i.invoice_date
+FROM invoices i
+JOIN users u
+    ON i.user_id = u.id
+JOIN bookings b
+    ON i.booking_id = b.id;
+
+
+-- ============================================================================
+-- 14. PAYMENT QUERIES
+-- ============================================================================
+
+-- Get all payments
+SELECT *
+FROM payments;
+
+
+-- Get payments by mode
+SELECT *
+FROM payments
+WHERE mode = 'UPI';
+
+
+-- Payment history for an invoice
+SELECT
+    p.id,
+    i.invoice_number,
+    p.amount,
+    p.mode,
+    p.payment_date
+FROM payments p
+JOIN invoices i
+    ON p.invoice_id = i.id
+WHERE p.invoice_id = 1;
+
+
+-- ============================================================================
+-- 15. PAYMENT SUMMARY
+-- ============================================================================
+
+SELECT
+    mode,
+    COUNT(*) AS number_of_payments,
+    SUM(amount) AS total_amount
+FROM payments
+GROUP BY mode
 ORDER BY total_amount DESC;
 
 
--- ============================================================
--- 22. BOOKING STATUS REPORT
--- ============================================================
+-- ============================================================================
+-- 16. DASHBOARD QUERIES
+-- ============================================================================
 
-SELECT
+-- Total users
+SELECT COUNT(*) AS total_users
+FROM users;
 
-    booking_status,
 
-    COUNT(*) AS total_bookings
+-- Total events
+SELECT COUNT(*) AS total_events
+FROM events;
 
+
+-- Total ticketed events
+SELECT COUNT(*) AS total_ticketed_events
+FROM events
+WHERE type = 'TICKETED';
+
+
+-- Total inventory events
+SELECT COUNT(*) AS total_inventory_events
+FROM events
+WHERE type = 'INVENTORY';
+
+
+-- Total bookings
+SELECT COUNT(*) AS total_bookings
+FROM bookings;
+
+
+-- Confirmed bookings
+SELECT COUNT(*) AS confirmed_bookings
 FROM bookings
+WHERE status = 'CONFIRMED';
 
-GROUP BY booking_status;
+
+-- Pending bookings
+SELECT COUNT(*) AS pending_bookings
+FROM bookings
+WHERE status = 'PENDING';
 
 
--- ============================================================
--- 23. MOST ACTIVE USERS
--- ============================================================
+-- Total revenue from confirmed bookings
+SELECT
+    COALESCE(SUM(total_amount), 0) AS total_revenue
+FROM bookings
+WHERE status = 'CONFIRMED';
+
+
+-- Total amount received
+SELECT
+    COALESCE(SUM(amount), 0) AS total_payments
+FROM payments;
+
+
+-- Total outstanding balance
+SELECT
+    COALESCE(SUM(balance_amount), 0) AS total_outstanding
+FROM invoices
+WHERE balance_amount > 0;
+
+
+-- ============================================================================
+-- 17. EVENT-WISE BOOKING REPORT
+-- ============================================================================
 
 SELECT
+    e.id AS event_id,
+    e.title AS event_name,
+    COUNT(b.id) AS total_bookings,
+    COALESCE(SUM(b.total_amount), 0) AS total_revenue
+FROM events e
+LEFT JOIN shows s
+    ON e.id = s.event_id
+LEFT JOIN bookings b
+    ON s.id = b.show_id
+GROUP BY e.id, e.title
+ORDER BY total_revenue DESC;
 
-    u.user_id,
+
+-- ============================================================================
+-- 18. CITY-WISE EVENT REPORT
+-- ============================================================================
+
+SELECT
+    city,
+    COUNT(*) AS total_events
+FROM events
+GROUP BY city
+ORDER BY total_events DESC;
+
+
+-- ============================================================================
+-- 19. CATEGORY-WISE EVENT REPORT
+-- ============================================================================
+
+SELECT
+    category,
+    COUNT(*) AS total_events
+FROM events
+WHERE category IS NOT NULL
+GROUP BY category
+ORDER BY total_events DESC;
+
+
+-- ============================================================================
+-- 20. CATEGORY-WISE REVENUE
+-- ============================================================================
+
+SELECT
+    e.category,
+    COUNT(b.id) AS total_bookings,
+    COALESCE(SUM(b.total_amount), 0) AS total_revenue
+FROM events e
+JOIN shows s
+    ON e.id = s.event_id
+JOIN bookings b
+    ON s.id = b.show_id
+WHERE b.status = 'CONFIRMED'
+GROUP BY e.category
+ORDER BY total_revenue DESC;
+
+
+-- ============================================================================
+-- 21. MOST POPULAR EVENTS
+-- ============================================================================
+
+SELECT
+    e.id,
+    e.title,
+    COUNT(b.id) AS booking_count
+FROM events e
+JOIN shows s
+    ON e.id = s.event_id
+JOIN bookings b
+    ON s.id = b.show_id
+GROUP BY e.id, e.title
+ORDER BY booking_count DESC;
+
+
+-- ============================================================================
+-- 22. TOP SELLING TICKET TYPES
+-- ============================================================================
+
+SELECT
+    tt.id,
+    tt.name AS ticket_type,
+    SUM(bi.quantity) AS tickets_sold,
+    SUM(bi.quantity * bi.unit_price) AS revenue
+FROM booking_items bi
+JOIN ticket_types tt
+    ON bi.ticket_type_id = tt.id
+JOIN bookings b
+    ON bi.booking_id = b.id
+WHERE b.status = 'CONFIRMED'
+GROUP BY tt.id, tt.name
+ORDER BY tickets_sold DESC;
+
+
+-- ============================================================================
+-- 23. LOW TICKET AVAILABILITY
+-- ============================================================================
+
+SELECT
+    tt.id,
+    e.title AS event_name,
+    s.show_datetime,
+    tt.name AS ticket_type,
+    tt.available_qty,
+    tt.total_qty
+FROM ticket_types tt
+JOIN shows s
+    ON tt.show_id = s.id
+JOIN events e
+    ON s.event_id = e.id
+WHERE tt.available_qty <= 50
+ORDER BY tt.available_qty ASC;
+
+
+-- ============================================================================
+-- 24. CUSTOMER BOOKING HISTORY
+-- ============================================================================
+
+SELECT
+    u.name AS customer_name,
+    u.email,
+    b.booking_reference,
+    e.title AS event_name,
+    s.show_datetime,
+    b.total_amount,
+    b.payment_status,
+    b.status
+FROM users u
+JOIN bookings b
+    ON u.id = b.user_id
+JOIN shows s
+    ON b.show_id = s.id
+JOIN events e
+    ON s.event_id = e.id
+WHERE u.id = 2
+ORDER BY b.booking_date DESC;
+
+
+-- ============================================================================
+-- 25. CUSTOMERS WITH MULTIPLE BOOKINGS
+-- ============================================================================
+
+SELECT
+    u.id,
     u.name,
     u.email,
-
-    COUNT(b.booking_id) AS total_bookings
-
+    COUNT(b.id) AS booking_count
 FROM users u
-
 JOIN bookings b
-    ON u.user_id = b.user_id
-
-GROUP BY
-    u.user_id,
-    u.name,
-    u.email
-
-ORDER BY total_bookings DESC;
+    ON u.id = b.user_id
+GROUP BY u.id, u.name, u.email
+HAVING COUNT(b.id) > 1
+ORDER BY booking_count DESC;
 
 
--- ============================================================
--- 24. EVENT INVENTORY SUMMARY
--- ============================================================
+-- ============================================================================
+-- 26. DAILY BOOKING REPORT
+-- ============================================================================
 
 SELECT
+    DATE(booking_date) AS booking_day,
+    COUNT(*) AS total_bookings,
+    SUM(total_amount) AS total_amount
+FROM bookings
+GROUP BY DATE(booking_date)
+ORDER BY booking_day DESC;
 
-    e.event_id,
+
+-- ============================================================================
+-- 27. DAILY PAYMENT REPORT
+-- ============================================================================
+
+SELECT
+    DATE(payment_date) AS payment_day,
+    COUNT(*) AS payment_count,
+    SUM(amount) AS total_payment
+FROM payments
+GROUP BY DATE(payment_date)
+ORDER BY payment_day DESC;
+
+
+-- ============================================================================
+-- 28. MONTHLY REVENUE
+-- ============================================================================
+
+SELECT
+    YEAR(booking_date) AS year,
+    MONTH(booking_date) AS month,
+    COUNT(*) AS total_bookings,
+    SUM(total_amount) AS revenue
+FROM bookings
+WHERE status = 'CONFIRMED'
+GROUP BY YEAR(booking_date), MONTH(booking_date)
+ORDER BY year DESC, month DESC;
+
+
+-- ============================================================================
+-- 29. PAYMENT STATUS SUMMARY
+-- ============================================================================
+
+SELECT
+    payment_status,
+    COUNT(*) AS booking_count,
+    SUM(total_amount) AS total_amount
+FROM bookings
+GROUP BY payment_status
+ORDER BY booking_count DESC;
+
+
+-- ============================================================================
+-- 30. BOOKING STATUS SUMMARY
+-- ============================================================================
+
+SELECT
+    status,
+    COUNT(*) AS booking_count,
+    COALESCE(SUM(total_amount), 0) AS total_amount
+FROM bookings
+GROUP BY status
+ORDER BY booking_count DESC;
+
+
+-- ============================================================================
+-- 31. UPCOMING EVENTS
+-- ============================================================================
+
+SELECT
+    id,
+    title,
+    category,
+    venue_name,
+    city,
+    start_time,
+    status
+FROM events
+WHERE start_time IS NOT NULL
+  AND start_time >= NOW()
+  AND status = 'ACTIVE'
+ORDER BY start_time ASC;
+
+
+-- ============================================================================
+-- 32. UPCOMING SHOWS
+-- ============================================================================
+
+SELECT
+    s.id AS show_id,
     e.title AS event_name,
-
-    COUNT(ei.event_inventory_id)
-        AS inventory_items_assigned,
-
-    COALESCE(
-        SUM(ei.assigned_quantity),
-        0
-    ) AS total_items_assigned,
-
-    COALESCE(
-        SUM(ei.returned_quantity),
-        0
-    ) AS total_items_returned
-
-FROM events e
-
-LEFT JOIN event_inventory ei
-    ON e.event_id = ei.event_id
-
-GROUP BY
-    e.event_id,
-    e.title
-
-ORDER BY e.event_id;
+    e.category,
+    e.venue_name,
+    e.city,
+    s.show_datetime
+FROM shows s
+JOIN events e
+    ON s.event_id = e.id
+WHERE s.show_datetime >= NOW()
+  AND s.status = 'ACTIVE'
+ORDER BY s.show_datetime ASC;
 
 
--- ============================================================
--- 25. DATABASE RELATIONSHIP CHECK
--- ============================================================
+-- ============================================================================
+-- 33. EVENT DETAILS BY EVENT ID
+-- ============================================================================
 
 SELECT
+    e.id AS event_id,
+    e.title,
+    e.description,
+    e.type,
+    e.category,
+    e.venue_name,
+    e.city,
+    e.start_time,
+    e.status,
+    s.id AS show_id,
+    s.show_datetime,
+    s.status AS show_status
+FROM events e
+LEFT JOIN shows s
+    ON e.id = s.event_id
+WHERE e.id = 1;
 
-    TABLE_NAME,
-    COLUMN_NAME,
-    CONSTRAINT_NAME,
-    REFERENCED_TABLE_NAME,
-    REFERENCED_COLUMN_NAME
 
-FROM information_schema.KEY_COLUMN_USAGE
+-- ============================================================================
+-- 34. FULL CUSTOMER INVOICE REPORT
+-- ============================================================================
 
-WHERE TABLE_SCHEMA = 'event_booking_db'
+SELECT
+    u.name AS customer_name,
+    u.email,
+    b.booking_reference,
+    e.title AS event_name,
+    i.invoice_number,
+    i.subtotal,
+    i.discount,
+    i.total_amount,
+    i.paid_amount,
+    i.balance_amount,
+    i.status AS invoice_status,
+    i.invoice_date
+FROM invoices i
+JOIN users u
+    ON i.user_id = u.id
+JOIN bookings b
+    ON i.booking_id = b.id
+JOIN shows s
+    ON b.show_id = s.id
+JOIN events e
+    ON s.event_id = e.id
+ORDER BY i.invoice_date DESC;
 
-  AND REFERENCED_TABLE_NAME IS NOT NULL
 
-ORDER BY TABLE_NAME;
+-- ============================================================================
+-- 35. REVENUE BY PAYMENT MODE
+-- ============================================================================
+
+SELECT
+    p.mode,
+    COUNT(p.id) AS transaction_count,
+    SUM(p.amount) AS total_revenue
+FROM payments p
+GROUP BY p.mode
+ORDER BY total_revenue DESC;
 
 
--- ============================================================
--- END OF queries.sql
--- ============================================================
-```
+-- ============================================================================
+-- END OF QUERIES
+-- ============================================================================

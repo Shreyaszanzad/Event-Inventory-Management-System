@@ -1,25 +1,47 @@
-# Database Backup & Restore
+# Event & Inventory Management System
+## Database Backup & Restore Guide
 
-## Database Name
+Database Name:
 
-event_booking_db
+`event_inventory`
 
-## Backup
+Database Engine:
 
-Use MySQL Workbench:
+`MySQL`
 
-Server → Data Export
+---
 
-Select:
+## 1. Database Structure
 
-event_booking_db
+The database contains the following tables:
 
-Export to Self-Contained File.
+1. `users`
+2. `otp_tokens`
+3. `events`
+4. `shows`
+5. `ticket_types`
+6. `bookings`
+7. `booking_items`
+8. `invoices`
+9. `payments`
 
-## Restore
+---
 
-Use:
+## 2. Prerequisites
 
-Server → Data Import
+Before restoring the database, make sure:
 
-Select the backup file and import it.
+- MySQL Server is installed and running.
+- MySQL username and password are available.
+- The project database scripts are available.
+- MySQL Workbench or MySQL CLI can be used.
+
+---
+
+## 3. Create Database
+
+Run:
+
+```sql
+CREATE DATABASE IF NOT EXISTS event_inventory;
+USE event_inventory;

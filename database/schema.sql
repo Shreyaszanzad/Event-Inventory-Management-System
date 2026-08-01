@@ -1,553 +1,336 @@
-```sql
--- ============================================================
--- EVENT & INVENTORY MANAGEMENT SYSTEM
--- schema.sql
--- MySQL 8+
--- ============================================================
+-- ============================================================================
+-- Event & Inventory Management System
+-- Authoritative Database Schema
+-- Database: event_inventory
+-- ============================================================================
 
+CREATE DATABASE IF NOT EXISTS event_inventory;
+USE event_inventory;
 
--- ============================================================
--- 1. CREATE DATABASE
--- ============================================================
-
-CREATE DATABASE IF NOT EXISTS event_booking_db;
-
-USE event_booking_db;
-
-
--- ============================================================
--- 2. REMOVE OLD TABLES
--- ============================================================
--- This allows you to run schema.sql again during development.
-
-SET FOREIGN_KEY_CHECKS = 0;
-
-DROP TABLE IF EXISTS event_inventory;
-DROP TABLE IF EXISTS bookings;
-DROP TABLE IF EXISTS ticket_types;
-DROP TABLE IF EXISTS shows;
-DROP TABLE IF EXISTS inventory;
-DROP TABLE IF EXISTS otp;
-DROP TABLE IF EXISTS events;
-DROP TABLE IF EXISTS users;
-
-SET FOREIGN_KEY_CHECKS = 1;
-
-
--- ============================================================
--- 3. USERS TABLE
--- ============================================================
+-- ============================================================================
+-- AUTH
+-- ============================================================================
 
 CREATE TABLE users (
+    id            BIGINT NOT NULL AUTO_INCREMENT,
+    name          VARCHAR(255),
+    phone         VARCHAR(15),
+    email         VARCHAR(255),
+    password_hash VARCHAR(255),
+    role          ENUM('ADMIN','USER') NOT NULL,
+    status        ENUM('ACTIVE','INACTIVE') NOT NULL,
+    created_at    DATETIME(6) NOT NULL,
 
-    user_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    PRIMARY KEY (id),
 
-    name VARCHAR(100) NOT NULL,
+    CONSTRAINT uk_users_phone UNIQUE (phone),
+    CONSTRAINT uk_users_email UNIQUE (email),
 
-    mobile VARCHAR(15) NOT NULL UNIQUE,
-
-    email VARCHAR(100) UNIQUE,
-
-    profile_image VARCHAR(255),
-
-    role ENUM('USER', 'ADMIN')
-        NOT NULL DEFAULT 'USER',
-
-    is_verified BOOLEAN
-        NOT NULL DEFAULT FALSE,
-
-    created_at TIMESTAMP
-        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    updated_at TIMESTAMP
-        NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP
-
-);
+    CONSTRAINT chk_users_phone_length
+        CHECK (phone IS NULL OR CHAR_LENGTH(phone) BETWEEN 10 AND 15)
+) ENGINE=InnoDB;
 
 
--- ============================================================
--- 4. OTP TABLE
--- ============================================================
+CREATE TABLE otp_tokens (
+    id         BIGINT NOT NULL AUTO_INCREMENT,
+    phone      VARCHAR(15) NOT NULL,
+    otp_hash   VARCHAR(255) NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    used       BIT NOT NULL,
+    attempts   INTEGER NOT NULL,
+    created_at DATETIME(6) NOT NULL,
 
-CREATE TABLE otp (
+    PRIMARY KEY (id),
 
-    otp_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-
-    mobile VARCHAR(15) NOT NULL,
-
-    otp VARCHAR(6) NOT NULL,
-
-    expires_at DATETIME NOT NULL,
-
-    verified BOOLEAN
-        NOT NULL DEFAULT FALSE,
-
-    INDEX idx_otp_mobile (mobile),
-
-    INDEX idx_otp_expires_at (expires_at)
-
-);
+    CONSTRAINT chk_otp_attempts
+        CHECK (attempts >= 0)
+) ENGINE=InnoDB;
 
 
--- ============================================================
--- 5. EVENTS TABLE
--- ============================================================
+-- ============================================================================
+-- CATALOG
+-- ============================================================================
 
 CREATE TABLE events (
+    id           BIGINT NOT NULL AUTO_INCREMENT,
+    title        VARCHAR(255) NOT NULL,
+    description  TEXT,
+    type         ENUM('INVENTORY','TICKETED') NOT NULL,
+    category     ENUM('AMUSEMENT','COMEDY','EVENT','MOVIE'),
+    venue_name   VARCHAR(255),
+    city         VARCHAR(255),
+    poster_url   VARCHAR(255),
+    start_time   DATETIME(6),
+    status       VARCHAR(20) NOT NULL,
+    created_by   BIGINT,
+    created_at   DATETIME(6) NOT NULL,
 
-    event_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    PRIMARY KEY (id),
 
-    title VARCHAR(200) NOT NULL,
+    CONSTRAINT chk_events_title
+        CHECK (CHAR_LENGTH(TRIM(title)) > 0)
+) ENGINE=InnoDB;
 
-    description TEXT,
-
-    category VARCHAR(100) NOT NULL,
-
-    organizer_name VARCHAR(100) NOT NULL,
-
-    banner_image VARCHAR(255),
-
-    venue VARCHAR(200) NOT NULL,
-
-    city VARCHAR(100) NOT NULL,
-
-    address TEXT,
-
-    latitude DECIMAL(10,7),
-
-    longitude DECIMAL(10,7),
-
-    status ENUM(
-        'DRAFT',
-        'PUBLISHED',
-        'CANCELLED',
-        'COMPLETED'
-    )
-    NOT NULL DEFAULT 'DRAFT',
-
-    created_at TIMESTAMP
-        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    INDEX idx_events_category (category),
-
-    INDEX idx_events_city (city),
-
-    INDEX idx_events_status (status)
-
-);
-
-
--- ============================================================
--- 6. SHOWS TABLE
--- ============================================================
 
 CREATE TABLE shows (
+    id            BIGINT NOT NULL AUTO_INCREMENT,
+    event_id      BIGINT NOT NULL,
+    show_datetime DATETIME(6) NOT NULL,
+    status        VARCHAR(20) NOT NULL,
+    created_at    DATETIME(6) NOT NULL,
 
-    show_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB;
 
-    event_id BIGINT NOT NULL,
-
-    show_date DATE NOT NULL,
-
-    show_time TIME NOT NULL,
-
-    venue VARCHAR(200),
-
-    total_seats INT NOT NULL,
-
-    available_seats INT NOT NULL,
-
-    status ENUM(
-        'ACTIVE',
-        'CANCELLED',
-        'COMPLETED'
-    )
-    NOT NULL DEFAULT 'ACTIVE',
-
-
-    -- Foreign Key
-    CONSTRAINT fk_shows_event
-
-        FOREIGN KEY (event_id)
-
-        REFERENCES events(event_id)
-
-        ON DELETE CASCADE
-
-        ON UPDATE CASCADE,
-
-
-    -- Seat validation
-    CONSTRAINT chk_shows_total_seats
-
-        CHECK (total_seats >= 0),
-
-
-    CONSTRAINT chk_shows_available_seats
-
-        CHECK (
-            available_seats >= 0
-            AND available_seats <= total_seats
-        ),
-
-
-    INDEX idx_shows_event_id (event_id),
-
-    INDEX idx_shows_date (show_date),
-
-    INDEX idx_shows_status (status)
-
-);
-
-
--- ============================================================
--- 7. TICKET TYPES TABLE
--- ============================================================
 
 CREATE TABLE ticket_types (
+    id             BIGINT NOT NULL AUTO_INCREMENT,
+    show_id        BIGINT NOT NULL,
+    name           VARCHAR(255) NOT NULL,
+    price          DECIMAL(10,2) NOT NULL,
+    total_qty      INTEGER NOT NULL,
+    available_qty  INTEGER NOT NULL,
 
-    ticket_type_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    PRIMARY KEY (id),
 
-    show_id BIGINT NOT NULL,
-
-    ticket_name VARCHAR(50) NOT NULL,
-
-    price DECIMAL(10,2)
-        NOT NULL DEFAULT 0.00,
-
-    total_tickets INT NOT NULL,
-
-    available_tickets INT NOT NULL,
-
-    description TEXT,
-
-
-    -- Foreign Key
-    CONSTRAINT fk_ticket_types_show
-
-        FOREIGN KEY (show_id)
-
-        REFERENCES shows(show_id)
-
-        ON DELETE CASCADE
-
-        ON UPDATE CASCADE,
-
-
-    -- Price validation
     CONSTRAINT chk_ticket_price
-
         CHECK (price >= 0),
 
+    CONSTRAINT chk_ticket_total_qty
+        CHECK (total_qty >= 0),
 
-    -- Total ticket validation
-    CONSTRAINT chk_ticket_total
+    CONSTRAINT chk_ticket_available_qty
+        CHECK (available_qty >= 0),
 
-        CHECK (total_tickets >= 0),
-
-
-    -- Available ticket validation
-    CONSTRAINT chk_ticket_available
-
-        CHECK (
-            available_tickets >= 0
-            AND available_tickets <= total_tickets
-        ),
+    CONSTRAINT chk_ticket_available_not_greater
+        CHECK (available_qty <= total_qty)
+) ENGINE=InnoDB;
 
 
-    INDEX idx_ticket_types_show_id (show_id)
-
-);
-
-
--- ============================================================
--- 8. BOOKINGS TABLE
--- ============================================================
+-- ============================================================================
+-- BOOKING
+-- ============================================================================
 
 CREATE TABLE bookings (
+    id                BIGINT NOT NULL AUTO_INCREMENT,
+    booking_reference VARCHAR(20) NOT NULL,
+    user_id           BIGINT NOT NULL,
+    show_id           BIGINT NOT NULL,
+    booking_date      DATETIME(6) NOT NULL,
+    expires_at        DATETIME(6),
+    total_amount      DECIMAL(10,2) NOT NULL,
+    payment_status    ENUM('PAID','PENDING','REFUNDED') NOT NULL,
+    status            ENUM('CANCELLED','CONFIRMED','EXPIRED','PENDING') NOT NULL,
+    version           BIGINT,
 
-    booking_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    PRIMARY KEY (id),
 
-    booking_code VARCHAR(30)
-        NOT NULL UNIQUE,
+    CONSTRAINT uk_bookings_reference
+        UNIQUE (booking_reference),
 
-    user_id BIGINT NOT NULL,
-
-    event_id BIGINT NOT NULL,
-
-    show_id BIGINT NOT NULL,
-
-    ticket_type_id BIGINT NOT NULL,
-
-    quantity INT NOT NULL,
-
-    total_amount DECIMAL(10,2)
-        NOT NULL DEFAULT 0.00,
-
-
-    payment_status ENUM(
-        'PENDING',
-        'PAID',
-        'FAILED',
-        'REFUNDED'
-    )
-    NOT NULL DEFAULT 'PENDING',
-
-
-    booking_status ENUM(
-        'PENDING',
-        'CONFIRMED',
-        'CANCELLED'
-    )
-    NOT NULL DEFAULT 'PENDING',
-
-
-    qr_code VARCHAR(255),
-
-
-    booked_at TIMESTAMP
-        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-
-    -- User relationship
-    CONSTRAINT fk_bookings_user
-
-        FOREIGN KEY (user_id)
-
-        REFERENCES users(user_id)
-
-        ON DELETE RESTRICT
-
-        ON UPDATE CASCADE,
-
-
-    -- Event relationship
-    CONSTRAINT fk_bookings_event
-
-        FOREIGN KEY (event_id)
-
-        REFERENCES events(event_id)
-
-        ON DELETE RESTRICT
-
-        ON UPDATE CASCADE,
-
-
-    -- Show relationship
-    CONSTRAINT fk_bookings_show
-
-        FOREIGN KEY (show_id)
-
-        REFERENCES shows(show_id)
-
-        ON DELETE RESTRICT
-
-        ON UPDATE CASCADE,
-
-
-    -- Ticket relationship
-    CONSTRAINT fk_bookings_ticket_type
-
-        FOREIGN KEY (ticket_type_id)
-
-        REFERENCES ticket_types(ticket_type_id)
-
-        ON DELETE RESTRICT
-
-        ON UPDATE CASCADE,
-
-
-    -- Quantity validation
-    CONSTRAINT chk_booking_quantity
-
-        CHECK (quantity > 0),
-
-
-    -- Amount validation
-    CONSTRAINT chk_booking_amount
-
+    CONSTRAINT chk_booking_total_amount
         CHECK (total_amount >= 0),
 
+    CONSTRAINT chk_booking_version
+        CHECK (version IS NULL OR version >= 0)
+) ENGINE=InnoDB;
 
-    INDEX idx_bookings_user_id (user_id),
 
-    INDEX idx_bookings_event_id (event_id),
+CREATE TABLE booking_items (
+    id             BIGINT NOT NULL AUTO_INCREMENT,
+    booking_id     BIGINT NOT NULL,
+    ticket_type_id BIGINT NOT NULL,
+    quantity       INTEGER NOT NULL,
+    unit_price     DECIMAL(10,2) NOT NULL,
 
-    INDEX idx_bookings_show_id (show_id),
+    PRIMARY KEY (id),
 
-    INDEX idx_bookings_ticket_type_id (ticket_type_id),
+    CONSTRAINT chk_booking_item_quantity
+        CHECK (quantity > 0),
 
-    INDEX idx_bookings_payment_status (payment_status),
+    CONSTRAINT chk_booking_item_unit_price
+        CHECK (unit_price >= 0)
+) ENGINE=InnoDB;
 
-    INDEX idx_bookings_booking_status (booking_status),
 
-    INDEX idx_bookings_booked_at (booked_at)
+-- ============================================================================
+-- BILLING
+-- ============================================================================
 
-);
+CREATE TABLE invoices (
+    id               BIGINT NOT NULL AUTO_INCREMENT,
+    invoice_number   VARCHAR(20) NOT NULL,
+    booking_id       BIGINT NOT NULL,
+    user_id          BIGINT NOT NULL,
+    subtotal         DECIMAL(10,2) NOT NULL,
+    discount         DECIMAL(10,2) NOT NULL,
+    total_amount     DECIMAL(10,2) NOT NULL,
+    paid_amount      DECIMAL(10,2) NOT NULL,
+    balance_amount   DECIMAL(10,2) NOT NULL,
+    status           ENUM('PAID','PARTIALLY_PAID','UNPAID') NOT NULL,
+    invoice_date     DATETIME(6) NOT NULL,
+    gateway_order_id VARCHAR(255),
+    version          BIGINT,
 
+    PRIMARY KEY (id),
 
--- ============================================================
--- 9. INVENTORY TABLE
--- ============================================================
+    CONSTRAINT uk_invoices_number
+        UNIQUE (invoice_number),
 
-CREATE TABLE inventory (
+    CONSTRAINT uk_invoices_booking
+        UNIQUE (booking_id),
 
-    inventory_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    CONSTRAINT chk_invoice_subtotal
+        CHECK (subtotal >= 0),
 
-    item_name VARCHAR(100) NOT NULL,
+    CONSTRAINT chk_invoice_discount
+        CHECK (discount >= 0),
 
-    category VARCHAR(100) NOT NULL,
+    CONSTRAINT chk_invoice_total
+        CHECK (total_amount >= 0),
 
-    quantity INT NOT NULL DEFAULT 0,
+    CONSTRAINT chk_invoice_paid
+        CHECK (paid_amount >= 0),
 
-    available_quantity INT NOT NULL DEFAULT 0,
+    CONSTRAINT chk_invoice_balance
+        CHECK (balance_amount >= 0),
 
-    supplier VARCHAR(100),
+    CONSTRAINT chk_invoice_amounts
+        CHECK (paid_amount + balance_amount = total_amount),
 
-    unit_price DECIMAL(10,2)
-        NOT NULL DEFAULT 0.00,
+    CONSTRAINT chk_invoice_version
+        CHECK (version IS NULL OR version >= 0)
+) ENGINE=InnoDB;
 
 
-    status ENUM(
-        'AVAILABLE',
-        'ASSIGNED',
-        'MAINTENANCE',
-        'DAMAGED'
-    )
-    NOT NULL DEFAULT 'AVAILABLE',
+CREATE TABLE payments (
+    id           BIGINT NOT NULL AUTO_INCREMENT,
+    invoice_id   BIGINT NOT NULL,
+    amount       DECIMAL(10,2) NOT NULL,
+    mode         ENUM('CARD','CASH','NETBANKING','ONLINE','UPI') NOT NULL,
+    payment_date DATETIME(6) NOT NULL,
 
+    PRIMARY KEY (id),
 
-    -- Quantity validation
-    CONSTRAINT chk_inventory_quantity
+    CONSTRAINT chk_payment_amount
+        CHECK (amount > 0)
+) ENGINE=InnoDB;
 
-        CHECK (quantity >= 0),
 
+-- ============================================================================
+-- FOREIGN KEYS
+-- ============================================================================
 
-    -- Available quantity validation
-    CONSTRAINT chk_inventory_available_quantity
+ALTER TABLE shows
+    ADD CONSTRAINT fk_shows_event
+    FOREIGN KEY (event_id)
+    REFERENCES events(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
-        CHECK (
-            available_quantity >= 0
-            AND available_quantity <= quantity
-        ),
 
+ALTER TABLE ticket_types
+    ADD CONSTRAINT fk_tickets_show
+    FOREIGN KEY (show_id)
+    REFERENCES shows(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
-    -- Price validation
-    CONSTRAINT chk_inventory_unit_price
 
-        CHECK (unit_price >= 0),
+ALTER TABLE bookings
+    ADD CONSTRAINT fk_bookings_user
+    FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
 
-    INDEX idx_inventory_category (category),
+ALTER TABLE bookings
+    ADD CONSTRAINT fk_bookings_show
+    FOREIGN KEY (show_id)
+    REFERENCES shows(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
-    INDEX idx_inventory_status (status)
 
-);
+ALTER TABLE booking_items
+    ADD CONSTRAINT fk_bookingitems_booking
+    FOREIGN KEY (booking_id)
+    REFERENCES bookings(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE;
 
 
--- ============================================================
--- 10. EVENT INVENTORY TABLE
--- ============================================================
+ALTER TABLE booking_items
+    ADD CONSTRAINT fk_bookingitems_ticket
+    FOREIGN KEY (ticket_type_id)
+    REFERENCES ticket_types(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
-CREATE TABLE event_inventory (
 
-    event_inventory_id BIGINT
-        PRIMARY KEY AUTO_INCREMENT,
+ALTER TABLE invoices
+    ADD CONSTRAINT fk_invoices_booking
+    FOREIGN KEY (booking_id)
+    REFERENCES bookings(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
-    event_id BIGINT NOT NULL,
 
-    inventory_id BIGINT NOT NULL,
+ALTER TABLE invoices
+    ADD CONSTRAINT fk_invoices_user
+    FOREIGN KEY (user_id)
+    REFERENCES users(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
 
-    assigned_quantity INT NOT NULL,
 
-    returned_quantity INT
-        NOT NULL DEFAULT 0,
+ALTER TABLE payments
+    ADD CONSTRAINT fk_payments_invoice
+    FOREIGN KEY (invoice_id)
+    REFERENCES invoices(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE;
 
-    remarks TEXT,
 
+-- ============================================================================
+-- INDEXES
+-- ============================================================================
 
-    -- Event relationship
-    CONSTRAINT fk_event_inventory_event
+CREATE INDEX idx_otp_phone
+    ON otp_tokens (phone);
 
-        FOREIGN KEY (event_id)
+CREATE INDEX idx_events_type
+    ON events (type);
 
-        REFERENCES events(event_id)
+CREATE INDEX idx_events_category
+    ON events (category);
 
-        ON DELETE CASCADE
+CREATE INDEX idx_shows_event
+    ON shows (event_id);
 
-        ON UPDATE CASCADE,
+CREATE INDEX idx_ticket_types_show
+    ON ticket_types (show_id);
 
+CREATE INDEX idx_bookings_user
+    ON bookings (user_id);
 
-    -- Inventory relationship
-    CONSTRAINT fk_event_inventory_inventory
+CREATE INDEX idx_bookings_show
+    ON bookings (show_id);
 
-        FOREIGN KEY (inventory_id)
+CREATE INDEX idx_bookings_status
+    ON bookings (status);
 
-        REFERENCES inventory(inventory_id)
+CREATE INDEX idx_booking_items_booking
+    ON booking_items (booking_id);
 
-        ON DELETE RESTRICT
+CREATE INDEX idx_invoices_booking
+    ON invoices (booking_id);
 
-        ON UPDATE CASCADE,
+CREATE INDEX idx_payments_invoice
+    ON payments (invoice_id);
 
 
-    -- Assigned quantity validation
-    CONSTRAINT chk_event_inventory_assigned
-
-        CHECK (assigned_quantity > 0),
-
-
-    -- Returned quantity validation
-    CONSTRAINT chk_event_inventory_returned
-
-        CHECK (
-            returned_quantity >= 0
-            AND returned_quantity <= assigned_quantity
-        ),
-
-
-    -- Same inventory cannot be assigned twice
-    -- to the same event
-    CONSTRAINT uq_event_inventory
-
-        UNIQUE (event_id, inventory_id),
-
-
-    INDEX idx_event_inventory_event_id (event_id),
-
-    INDEX idx_event_inventory_inventory_id (inventory_id)
-
-);
-
-
--- ============================================================
--- 11. VERIFY TABLES
--- ============================================================
-
-SHOW TABLES;
-
-
--- ============================================================
--- 12. VERIFY RELATIONSHIPS
--- ============================================================
-
-SELECT
-    TABLE_NAME,
-    COLUMN_NAME,
-    CONSTRAINT_NAME,
-    REFERENCED_TABLE_NAME,
-    REFERENCED_COLUMN_NAME
-
-FROM information_schema.KEY_COLUMN_USAGE
-
-WHERE TABLE_SCHEMA = 'event_booking_db'
-
-AND REFERENCED_TABLE_NAME IS NOT NULL
-
-ORDER BY TABLE_NAME;
-
-
--- ============================================================
--- SCHEMA CREATION COMPLETE
--- ============================================================
-```
+-- ============================================================================
+-- END OF SCHEMA
+-- ============================================================================
