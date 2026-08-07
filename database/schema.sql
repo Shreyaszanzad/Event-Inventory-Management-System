@@ -332,5 +332,103 @@ CREATE INDEX idx_payments_invoice
 
 
 -- ============================================================================
+-- INVENTORY
+-- ----------------------------------------------------------------------------
+-- Physical assets the company owns (chairs, speakers, drapes) and their
+-- allocation to events. Stock works exactly like ticket_types: total_qty is
+-- what we own, available_qty is what is not currently out on an event.
+-- ============================================================================
+
+CREATE TABLE inventory_items (
+    id            BIGINT NOT NULL AUTO_INCREMENT,
+    name          VARCHAR(255) NOT NULL,
+    description   TEXT,
+    category      ENUM('AUDIO_VISUAL','CATERING','DECOR','FURNITURE','LIGHTING','OTHER') NOT NULL,
+    total_qty     INTEGER NOT NULL,
+    available_qty INTEGER NOT NULL,
+    unit_price    DECIMAL(10,2) NOT NULL,
+    status        ENUM('ACTIVE','RETIRED') NOT NULL,
+    created_at    DATETIME(6) NOT NULL,
+    version       BIGINT,
+
+    PRIMARY KEY (id),
+
+    CONSTRAINT chk_inventory_name
+        CHECK (CHAR_LENGTH(TRIM(name)) > 0),
+
+    CONSTRAINT chk_inventory_total_qty
+        CHECK (total_qty >= 0),
+
+    CONSTRAINT chk_inventory_available_qty
+        CHECK (available_qty >= 0),
+
+    CONSTRAINT chk_inventory_available_not_greater
+        CHECK (available_qty <= total_qty),
+
+    CONSTRAINT chk_inventory_unit_price
+        CHECK (unit_price >= 0),
+
+    CONSTRAINT chk_inventory_version
+        CHECK (version IS NULL OR version >= 0)
+) ENGINE=InnoDB;
+
+
+CREATE TABLE event_inventory (
+    id                BIGINT NOT NULL AUTO_INCREMENT,
+    event_id          BIGINT NOT NULL,
+    inventory_item_id BIGINT NOT NULL,
+    allocated_qty     INTEGER NOT NULL,
+    status            ENUM('ALLOCATED','CANCELLED','RETURNED') NOT NULL,
+    notes             VARCHAR(500),
+    allocated_at      DATETIME(6) NOT NULL,
+    released_at       DATETIME(6),
+
+    PRIMARY KEY (id),
+
+    -- One row per item per event: raising the quantity is an UPDATE, not a
+    -- second allocation. Keeps "what does this event hold?" a lookup, not a SUM.
+    CONSTRAINT uk_event_inventory_item
+        UNIQUE (event_id, inventory_item_id),
+
+    CONSTRAINT chk_event_inventory_qty
+        CHECK (allocated_qty > 0),
+
+    -- A released row must carry its timestamp, and a live one must not.
+    CONSTRAINT chk_event_inventory_released_at
+        CHECK ((status = 'ALLOCATED' AND released_at IS NULL)
+               OR (status <> 'ALLOCATED' AND released_at IS NOT NULL))
+) ENGINE=InnoDB;
+
+
+ALTER TABLE event_inventory
+    ADD CONSTRAINT fk_event_inventory_event
+    FOREIGN KEY (event_id)
+    REFERENCES events(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
+
+
+ALTER TABLE event_inventory
+    ADD CONSTRAINT fk_event_inventory_item
+    FOREIGN KEY (inventory_item_id)
+    REFERENCES inventory_items(id)
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE;
+
+
+CREATE INDEX idx_inventory_category
+    ON inventory_items (category);
+
+CREATE INDEX idx_inventory_status
+    ON inventory_items (status);
+
+CREATE INDEX idx_event_inventory_event
+    ON event_inventory (event_id);
+
+CREATE INDEX idx_event_inventory_item
+    ON event_inventory (inventory_item_id);
+
+
+-- ============================================================================
 -- END OF SCHEMA
 -- ============================================================================

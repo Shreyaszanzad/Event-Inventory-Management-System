@@ -460,5 +460,172 @@ VALUES
 
 
 -- ============================================================================
+-- 10. INVENTORY ITEMS
+-- ----------------------------------------------------------------------------
+-- available_qty is deliberately total_qty minus whatever section 11 allocates
+-- below, so the seeded stock and the seeded allocations agree with each other.
+-- ============================================================================
+
+INSERT INTO inventory_items
+(
+    name,
+    description,
+    category,
+    total_qty,
+    available_qty,
+    unit_price,
+    status,
+    created_at,
+    version
+)
+VALUES
+(
+    'Banquet Chair',
+    'Stackable padded banquet chair with fabric cover.',
+    'FURNITURE',
+    500,
+    300,           -- 200 allocated to the corporate event
+    45.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'Round Table (6 seater)',
+    'Foldable 5-foot round table seating six.',
+    'FURNITURE',
+    80,
+    55,            -- 25 allocated
+    250.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'Line Array Speaker',
+    'Powered line-array speaker cabinet, 1000W.',
+    'AUDIO_VISUAL',
+    24,
+    16,            -- 8 allocated
+    3500.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'Wireless Microphone',
+    'Handheld UHF wireless microphone with receiver.',
+    'AUDIO_VISUAL',
+    40,
+    40,
+    900.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'LED Par Light',
+    'RGBW LED par can with DMX control.',
+    'LIGHTING',
+    60,
+    60,
+    650.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'Stage Backdrop Drape',
+    'Pleated velvet backdrop drape, 3m x 6m.',
+    'DECOR',
+    20,
+    20,
+    1200.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'Chafing Dish',
+    'Stainless steel chafing dish with fuel holder.',
+    'CATERING',
+    50,
+    50,
+    400.00,
+    'ACTIVE',
+    NOW(6),
+    0
+),
+(
+    'Fog Machine (retired)',
+    'Withdrawn from service after a fault; kept for allocation history.',
+    'OTHER',
+    4,
+    4,
+    2200.00,
+    'RETIRED',
+    NOW(6),
+    0
+);
+
+
+-- ============================================================================
+-- 11. EVENT INVENTORY ALLOCATIONS
+-- ----------------------------------------------------------------------------
+-- Event 5 is the INVENTORY-type "Corporate Annual Event". The three ALLOCATED
+-- rows match the reduced available_qty values above; the RETURNED row is
+-- history and holds no stock, so it does not affect availability.
+-- ============================================================================
+
+INSERT INTO event_inventory
+(
+    event_id,
+    inventory_item_id,
+    allocated_qty,
+    status,
+    notes,
+    allocated_at,
+    released_at
+)
+VALUES
+(
+    5,
+    1,
+    200,
+    'ALLOCATED',
+    'Main hall seating.',
+    NOW(6),
+    NULL
+),
+(
+    5,
+    2,
+    25,
+    'ALLOCATED',
+    'Dining layout, 6 guests per table.',
+    NOW(6),
+    NULL
+),
+(
+    5,
+    3,
+    8,
+    'ALLOCATED',
+    'Left and right stacks for the main stage.',
+    NOW(6),
+    NULL
+),
+(
+    1,
+    4,
+    4,
+    'RETURNED',
+    'Comedy night hand-helds — returned after the show.',
+    DATE_SUB(NOW(6), INTERVAL 2 DAY),
+    DATE_SUB(NOW(6), INTERVAL 1 DAY)
+);
+
+
+-- ============================================================================
 -- END OF SEED DATA
 -- ============================================================================
