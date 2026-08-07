@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Local environment overrides. `.env.example` is committed as the template;
+# `src/api/client.js` falls back to http://localhost:8080 so the app still runs
+# for anyone who never created a `.env`.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
