@@ -13,7 +13,8 @@ import { listShowsForEvent, listTicketTypes } from '../api/shows';
 import { useApiData } from '../hooks/useApiData';
 import AsyncBoundary from '../components/AsyncBoundary';
 import { categoryMeta } from '../constants/categories';
-import { formatDate, formatTime, formatMoneyShort, posterOf } from '../utils/format';
+import { formatDate, formatTime, formatMoneyShort } from '../utils/format';
+import { Poster } from '../components/Poster';
 
 const { Title, Text } = Typography;
 
@@ -123,8 +124,8 @@ const ShowSelectionPage = () => {
             >
               <Row align="middle" gutter={[24, 24]}>
                 <Col xs={24} md={4}>
-                  <img
-                    src={posterOf(event)}
+                  <Poster
+                    source={event}
                     alt={event.title}
                     style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '14px' }}
                   />

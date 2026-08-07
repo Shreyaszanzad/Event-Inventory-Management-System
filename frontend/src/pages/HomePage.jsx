@@ -13,7 +13,8 @@ import { useApiData } from '../hooks/useApiData';
 import AsyncBoundary from '../components/AsyncBoundary';
 import EventCard from '../components/EventCard';
 import { CATEGORY_LABELS, categoryMeta } from '../constants/categories';
-import { formatDateTime, posterOf } from '../utils/format';
+import { formatDateTime } from '../utils/format';
+import { PosterBackdrop } from '../components/Poster';
 import { useTheme } from '../context/ThemeContext';
 
 const { Title, Text } = Typography;
@@ -88,7 +89,7 @@ const HomePage = () => {
             <Carousel autoplay autoplaySpeed={4500} effect="fade" dots={{ className: 'hero-dots' }}>
               {heroEvents.map((event) => (
                 <div key={event.id}>
-                  <div className="hero-card" style={{ backgroundImage: `url(${posterOf(event)})` }}>
+                  <PosterBackdrop source={event} className="hero-card">
                     <div className="hero-overlay" />
                     <div className="hero-content">
                       <span className="hero-tag">
@@ -117,7 +118,7 @@ const HomePage = () => {
                         </span>
                       </Button>
                     </div>
-                  </div>
+                  </PosterBackdrop>
                 </div>
               ))}
             </Carousel>

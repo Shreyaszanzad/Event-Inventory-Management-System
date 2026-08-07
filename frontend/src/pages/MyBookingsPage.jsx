@@ -15,7 +15,8 @@ import { enrichBookings } from '../api/enrich';
 import { useApiData } from '../hooks/useApiData';
 import AsyncBoundary, { EmptyState, InlineError } from '../components/AsyncBoundary';
 import { BOOKING_STATUS_COLOR, PAYMENT_STATUS_COLOR } from '../constants/categories';
-import { formatDateTime, formatMoney, formatCountdown, secondsUntil, posterOf } from '../utils/format';
+import { formatDateTime, formatMoney, formatCountdown, secondsUntil } from '../utils/format';
+import { Poster } from '../components/Poster';
 
 const { Title, Text } = Typography;
 
@@ -154,8 +155,8 @@ const MyBookingsPage = () => {
                   <Row gutter={[24, 24]} align="middle">
 
                     <Col xs={24} sm={6} md={5}>
-                      <img
-                        src={posterOf(booking)}
+                      <Poster
+                        source={booking}
                         alt={booking.eventTitle || booking.bookingReference}
                         style={{ width: '100%', height: '130px', objectFit: 'cover', borderRadius: '16px' }}
                       />

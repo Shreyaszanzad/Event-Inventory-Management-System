@@ -15,7 +15,8 @@ import { enrichBooking } from '../api/enrich';
 import { useApiData } from '../hooks/useApiData';
 import AsyncBoundary from '../components/AsyncBoundary';
 import { BOOKING_STATUS_COLOR, PAYMENT_STATUS_COLOR } from '../constants/categories';
-import { formatDate, formatTime, formatDateTime, formatMoney, posterOf } from '../utils/format';
+import { formatDate, formatTime, formatDateTime, formatMoney } from '../utils/format';
+import { Poster } from '../components/Poster';
 
 const { Title, Text } = Typography;
 
@@ -90,8 +91,8 @@ const BookingDetailsPage = () => {
             <Card style={{ borderRadius: '24px', overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
 
               <div style={{ position: 'relative', height: '220px', overflow: 'hidden' }}>
-                <img
-                  src={posterOf(booking)}
+                <Poster
+                  source={booking}
                   alt={booking.eventTitle || booking.bookingReference}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
