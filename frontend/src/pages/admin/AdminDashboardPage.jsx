@@ -1,495 +1,335 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Row,
-  Col,
-  Card,
-  Table,
-  Tag,
-  Button,
-  Typography,
-  Space,
-  Progress,
-  Avatar,
-  Statistic,
-  Select,
-  Dropdown,
-  Tooltip
-} from 'antd';
+import { Row, Col, Card, Table, Tag, Button, Typography, Space, Progress, Statistic, Alert, Tooltip } from 'antd';
 import {
   CalendarOutlined,
   ClockCircleOutlined,
   IdcardOutlined,
   DollarOutlined,
-  RiseOutlined,
-  ArrowUpOutlined,
-  ArrowDownOutlined,
-  MoreOutlined,
-  EyeOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  CheckCircleFilled,
-  SyncOutlined
+  ReloadOutlined,
+  PlusOutlined,
+  TagOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
-import { EVENTS, MOCK_BOOKINGS } from '../../data/mockData';
+import { listAllEvents } from '../../api/events';
+import { listShowsForEvent, listTicketTypes } from '../../api/shows';
+import { useApiData } from '../../hooks/useApiData';
+import AsyncBoundary from '../../components/AsyncBoundary';
+import { categoryMeta } from '../../constants/categories';
+import { formatDateTime, formatMoney, formatMoneyShort } from '../../utils/format';
 
 const { Title, Text } = Typography;
 
+/**
+ * Admin overview, computed from the live catalogue (integration plan YG-9).
+ *
+ * Every number here is derived from data the API actually exposes: events, shows,
+ * and ticket tiers. Seats sold is `Σ (totalQty − availableQty)` and gross value is
+ * `Σ (sold × price)` per tier.
+ *
+ * ⚠️ **Known gap:** there is no admin endpoint that lists bookings —
+ * `/api/bookings/me` is scoped to the calling user — so a true "recent bookings"
+ * table and a booking count cannot be built yet. The mock dashboard faked both.
+ * Rather than invent numbers, this shows what the catalogue can prove and says so.
+ * A `GET /api/admin/bookings` would close it.
+ */
 const AdminDashboardPage = () => {
   const navigate = useNavigate();
 
-  // Metrics Data
-  const stats = [
-    {
-      title: 'Total Active Events',
-      value: 142,
-      suffix: '+12% this month',
-      isUp: true,
-      icon: <CalendarOutlined style={{ fontSize: '24px', color: '#6366f1' }} />,
-      bg: '#f5f3ff',
-      color: '#6366f1'
-    },
-    {
-      title: 'Total Show Slots',
-      value: 380,
-      suffix: '+8% vs last week',
-      isUp: true,
-      icon: <ClockCircleOutlined style={{ fontSize: '24px', color: '#ec4899' }} />,
-      bg: '#fff0f6',
-      color: '#ec4899'
-    },
-    {
-      title: 'Total Ticket Bookings',
-      value: '4,890',
-      suffix: '+24% growth',
-      isUp: true,
-      icon: <IdcardOutlined style={{ fontSize: '24px', color: '#52c41a' }} />,
-      bg: '#f6ffed',
-      color: '#52c41a'
-    },
-    {
-      title: 'Total Revenue Generated',
-      value: '₹12,45,800',
-      suffix: '+18.5% revenue',
-      isUp: true,
-      icon: <DollarOutlined style={{ fontSize: '24px', color: '#fa8c16' }} />,
-      bg: '#fff7e6',
-      color: '#fa8c16'
-    }
-  ];
+  const fetchOverview = useCallback(async () => {
+    const events = await listAllEvents();
 
-  // Recent Bookings Data for Table
-  const recentBookingsData = [
-    {
-      key: '1',
-      id: 'EVT-BK-2026-98421',
-      customer: 'Rahul Sharma',
-      email: 'rahul@example.com',
-      event: 'Arijit Singh Symphony Night',
-      date: '12 AUG 2026',
-      tickets: 2,
-      amount: '₹2,358',
-      status: 'Confirmed',
-      statusColor: 'green'
-    },
-    {
-      key: '2',
-      id: 'EVT-BK-2026-45120',
-      customer: 'Priya Patel',
-      email: 'priya@example.com',
-      event: 'Zakir Khan - Papa Bolte Hain',
-      date: '18 AUG 2026',
-      tickets: 1,
-      amount: '₹1,228',
-      status: 'Confirmed',
-      statusColor: 'green'
-    },
-    {
-      key: '3',
-      id: 'EVT-BK-2026-33901',
-      customer: 'Vikram Malhotra',
-      email: 'vikram@example.com',
-      event: 'Grand Champions T20 Derby',
-      date: '22 AUG 2026',
-      tickets: 4,
-      amount: '₹6,480',
-      status: 'Pending',
-      statusColor: 'orange'
-    },
-    {
-      key: '4',
-      id: 'EVT-BK-2026-88129',
-      customer: 'Sneha Deshmukh',
-      email: 'sneha@example.com',
-      event: 'UI/UX & AI Product Design',
-      date: '28 AUG 2026',
-      tickets: 1,
-      amount: '₹2,999',
-      status: 'Confirmed',
-      statusColor: 'green'
-    },
-    {
-      key: '5',
-      id: 'EVT-BK-2025-11048',
-      customer: 'Anish Verma',
-      email: 'anish@example.com',
-      event: 'The Phantom Musical Drama',
-      date: '10 MAY 2025',
-      tickets: 2,
-      amount: '₹2,950',
-      status: 'Cancelled',
-      statusColor: 'red'
-    }
-  ];
+    const perEvent = await Promise.all(
+      events.map(async (event) => {
+        const shows = await listShowsForEvent(event.id).catch(() => []);
+        const showsWithTiers = await Promise.all(
+          shows.map(async (show) => {
+            const tiers = await listTicketTypes(show.id).catch(() => []);
+            return { ...show, eventTitle: event.title, tiers };
+          }),
+        );
+        return { event, shows: showsWithTiers };
+      }),
+    );
 
-  // Recent Bookings Columns
-  const bookingsColumns = [
-    {
-      title: 'Booking ID',
-      dataIndex: 'id',
-      key: 'id',
-      render: (text) => <strong style={{ color: '#6366f1' }}>{text}</strong>
-    },
-    {
-      title: 'Customer',
-      dataIndex: 'customer',
-      key: 'customer',
-      render: (text, record) => (
-        <div>
-          <div style={{ fontWeight: 700, color: '#0f172a' }}>{text}</div>
-          <Text type="secondary" style={{ fontSize: '0.75rem' }}>{record.email}</Text>
-        </div>
-      )
-    },
-    {
-      title: 'Event Title',
-      dataIndex: 'event',
-      key: 'event',
-      render: (text) => <span style={{ fontWeight: 600 }}>{text}</span>
-    },
-    {
-      title: 'Date',
-      dataIndex: 'date',
-      key: 'date'
-    },
-    {
-      title: 'Tickets',
-      dataIndex: 'tickets',
-      key: 'tickets',
-      render: (count) => <Tag color="blue">{count} Pass(es)</Tag>
-    },
-    {
-      title: 'Amount',
-      dataIndex: 'amount',
-      key: 'amount',
-      render: (amt) => <strong style={{ color: '#0f172a' }}>{amt}</strong>
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status, record) => (
-        <Tag color={record.statusColor} style={{ borderRadius: '10px', fontWeight: 600 }}>
-          {status}
-        </Tag>
-      )
-    },
-    {
-      title: 'Action',
-      key: 'action',
-      render: (_, record) => (
-        <Button
-          type="text"
-          icon={<EyeOutlined />}
-          onClick={() => navigate(`/my-bookings/${record.id}`)}
-        />
-      )
-    }
-  ];
+    return { events, byEvent: perEvent };
+  }, []);
 
-  // Recent Events Data for Table
-  const recentEventsData = EVENTS.map((e, index) => ({
-    key: e.id,
-    id: e.id,
-    title: e.title,
-    category: e.categoryName,
-    venue: e.venue,
-    price: `₹${e.price}`,
-    city: e.cityName,
-    image: e.image,
-    soldPercent: index === 0 ? 88 : index === 1 ? 95 : 64,
-    status: index === 1 ? 'Selling Fast' : 'Active'
-  }));
+  const { data, loading, error, reload } = useApiData(fetchOverview, []);
 
-  // Recent Events Columns
-  const eventsColumns = [
+  const stats = useMemo(() => {
+    if (!data) return null;
+
+    const allShows = data.byEvent.flatMap((entry) => entry.shows);
+    const allTiers = allShows.flatMap((show) => show.tiers);
+
+    const totalSeats = allTiers.reduce((sum, t) => sum + (t.totalQty || 0), 0);
+    const availableSeats = allTiers.reduce((sum, t) => sum + (t.availableQty || 0), 0);
+    const soldSeats = totalSeats - availableSeats;
+    const grossValue = allTiers.reduce(
+      (sum, t) => sum + ((t.totalQty || 0) - (t.availableQty || 0)) * Number(t.price || 0),
+      0,
+    );
+
+    return {
+      ticketedEvents: data.events.filter((e) => e.type === 'TICKETED').length,
+      inventoryEvents: data.events.filter((e) => e.type === 'INVENTORY').length,
+      totalEvents: data.events.length,
+      totalShows: allShows.length,
+      showsWithoutTiers: allShows.filter((s) => s.tiers.length === 0).length,
+      totalTiers: allTiers.length,
+      totalSeats,
+      availableSeats,
+      soldSeats,
+      grossValue,
+      occupancy: totalSeats ? Math.round((soldSeats / totalSeats) * 100) : 0,
+      shows: allShows,
+    };
+  }, [data]);
+
+  const statCards = stats
+    ? [
+        {
+          title: 'Events',
+          value: stats.totalEvents,
+          hint: `${stats.ticketedEvents} ticketed · ${stats.inventoryEvents} inventory`,
+          icon: <CalendarOutlined style={{ fontSize: 24, color: '#6366f1' }} />,
+          bg: '#f5f3ff',
+        },
+        {
+          title: 'Show slots',
+          value: stats.totalShows,
+          hint:
+            stats.showsWithoutTiers > 0
+              ? `${stats.showsWithoutTiers} with no ticket tiers yet`
+              : 'All slots have ticket tiers',
+          icon: <ClockCircleOutlined style={{ fontSize: 24, color: '#ec4899' }} />,
+          bg: '#fff0f6',
+        },
+        {
+          title: 'Seats booked',
+          value: `${stats.soldSeats} / ${stats.totalSeats}`,
+          hint: `${stats.availableSeats} still available`,
+          icon: <IdcardOutlined style={{ fontSize: 24, color: '#52c41a' }} />,
+          bg: '#f6ffed',
+        },
+        {
+          title: 'Gross ticket value',
+          value: formatMoneyShort(stats.grossValue),
+          hint: 'Booked seats × tier price',
+          icon: <DollarOutlined style={{ fontSize: 24, color: '#fa8c16' }} />,
+          bg: '#fff7e6',
+        },
+      ]
+    : [];
+
+  const showColumns = [
     {
       title: 'Event',
-      dataIndex: 'title',
-      key: 'title',
+      dataIndex: 'eventTitle',
+      key: 'eventTitle',
       render: (text, record) => (
-        <Space size="middle">
-          <img src={record.image} alt={text} style={{ width: '44px', height: '44px', borderRadius: '10px', objectFit: 'cover' }} />
-          <div>
-            <div style={{ fontWeight: 700, color: '#0f172a' }}>{text}</div>
-            <Text type="secondary" style={{ fontSize: '0.75rem' }}>{record.venue}, {record.city}</Text>
-          </div>
-        </Space>
-      )
-    },
-    {
-      title: 'Category',
-      dataIndex: 'category',
-      key: 'category',
-      render: (cat) => <Tag color="purple" style={{ borderRadius: '10px' }}>{cat}</Tag>
-    },
-    {
-      title: 'Price',
-      dataIndex: 'price',
-      key: 'price',
-      render: (p) => <strong>{p}</strong>
-    },
-    {
-      title: 'Seats Occupancy',
-      dataIndex: 'soldPercent',
-      key: 'soldPercent',
-      render: (percent) => (
-        <div style={{ width: '120px' }}>
-          <Progress percent={percent} size="small" strokeColor={percent > 90 ? '#f5222d' : '#6366f1'} />
+        <div>
+          <div style={{ fontWeight: 700 }}>{text}</div>
+          <Text type="secondary" style={{ fontSize: '0.78rem' }}>Show #{record.id}</Text>
         </div>
-      )
+      ),
     },
     {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => (
-        <Tag color={status === 'Selling Fast' ? 'volcano' : 'green'} style={{ borderRadius: '10px', fontWeight: 600 }}>
-          {status}
-        </Tag>
-      )
+      title: 'When',
+      dataIndex: 'showDatetime',
+      key: 'showDatetime',
+      render: (value) => <span style={{ fontSize: '0.85rem' }}>{formatDateTime(value)}</span>,
     },
     {
-      title: 'Actions',
-      key: 'actions',
-      render: (_, record) => (
-        <Space>
-          <Tooltip title="View Event Page">
-            <Button type="text" icon={<EyeOutlined />} onClick={() => navigate(`/events/${record.id}`)} />
-          </Tooltip>
-          <Tooltip title="Edit Event">
-            <Button type="text" icon={<EditOutlined />} />
-          </Tooltip>
-        </Space>
-      )
-    }
+      title: 'Tiers',
+      key: 'tiers',
+      render: (_, record) =>
+        record.tiers.length === 0 ? (
+          <Tag color="orange" style={{ borderRadius: 10 }}>None — not bookable</Tag>
+        ) : (
+          <Text style={{ fontSize: '0.85rem' }}>{record.tiers.length}</Text>
+        ),
+    },
+    {
+      title: 'Occupancy',
+      key: 'occupancy',
+      render: (_, record) => {
+        const total = record.tiers.reduce((sum, t) => sum + (t.totalQty || 0), 0);
+        const available = record.tiers.reduce((sum, t) => sum + (t.availableQty || 0), 0);
+        if (!total) return <Text type="secondary">—</Text>;
+        const percent = Math.round(((total - available) / total) * 100);
+        return (
+          <div style={{ width: 130 }}>
+            <Progress percent={percent} size="small" strokeColor={percent > 85 ? '#f5222d' : '#6366f1'} />
+            <Text type="secondary" style={{ fontSize: '0.72rem' }}>{available} of {total} left</Text>
+          </div>
+        );
+      },
+    },
+    {
+      title: 'Revenue',
+      key: 'revenue',
+      render: (_, record) => {
+        const revenue = record.tiers.reduce(
+          (sum, t) => sum + ((t.totalQty || 0) - (t.availableQty || 0)) * Number(t.price || 0),
+          0,
+        );
+        return <strong>{formatMoney(revenue)}</strong>;
+      },
+    },
   ];
 
   return (
     <div>
-      
-      {/* Overview Title Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: '1.5rem' }}>
         <div>
-          <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
-            System Dashboard Overview
+          <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
+            Dashboard
           </Title>
           <Text type="secondary" style={{ fontSize: '0.9rem' }}>
-            Real-time telemetry, revenue analytics, and recent event bookings
+            Live catalogue and seat occupancy
           </Text>
         </div>
 
         <Space>
-          <Select defaultValue="month" style={{ width: 140 }}>
-            <Select.Option value="today">Today</Select.Option>
-            <Select.Option value="week">This Week</Select.Option>
-            <Select.Option value="month">This Month</Select.Option>
-            <Select.Option value="year">This Year</Select.Option>
-          </Select>
-          <Button type="primary" icon={<SyncOutlined />} style={{ borderRadius: '10px', background: '#6366f1' }}>
-            Refresh Data
+          <Button icon={<ReloadOutlined />} onClick={reload} style={{ borderRadius: 12, fontWeight: 600 }}>
+            Refresh
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => navigate('/admin/events')}
+            style={{ borderRadius: 12, background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', fontWeight: 700 }}
+          >
+            Add event
           </Button>
         </Space>
       </div>
 
-      {/* 4 Metric Cards */}
-      <Row gutter={[20, 20]} style={{ marginBottom: '2rem' }}>
-        {stats.map((stat, idx) => (
-          <Col xs={24} sm={12} lg={6} key={idx}>
-            <Card
-              style={{
-                borderRadius: '20px',
-                boxShadow: '0 4px 18px rgba(0,0,0,0.03)',
-                border: '1px solid #e2e8f0'
-              }}
-              bodyStyle={{ padding: '1.5rem' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
-                <div>
-                  <Text type="secondary" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
-                    {stat.title}
-                  </Text>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
-                    {stat.value}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    width: '48px',
-                    height: '48px',
-                    borderRadius: '14px',
-                    background: stat.bg,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justify: 'center'
-                  }}
-                >
-                  {stat.icon}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.8rem', color: stat.isUp ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
-                {stat.isUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                <span>{stat.suffix}</span>
-              </div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {/* Charts & Analytics Visual Section */}
-      <Row gutter={[20, 20]} style={{ marginBottom: '2rem' }}>
-        
-        {/* Revenue Growth Progress */}
-        <Col xs={24} lg={16}>
-          <Card
-            style={{ borderRadius: '20px', boxShadow: '0 4px 18px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0', height: '100%' }}
-            title={<span style={{ fontWeight: 800 }}>Revenue & Booking Trends (2026)</span>}
-          >
-            <Row gutter={[16, 16]}>
-              <Col span={12}>
-                <Text type="secondary">Monthly Target Progress</Text>
-                <div style={{ margin: '8px 0 16px 0' }}>
-                  <Progress percent={78} strokeColor={{ '0%': '#10b981', '100%': '#6366f1' }} status="active" />
-                </div>
-                <Text style={{ fontSize: '0.85rem', color: '#64748b' }}>₹12.45L achieved of ₹15L target</Text>
-              </Col>
-              
-              <Col span={12}>
-                <Text type="secondary">Seat Fulfillment Rate</Text>
-                <div style={{ margin: '8px 0 16px 0' }}>
-                  <Progress percent={92} strokeColor={{ '0%': '#f59e0b', '100%': '#ec4899' }} status="active" />
-                </div>
-                <Text style={{ fontSize: '0.85rem', color: '#64748b' }}>Average 92% occupancy across top venues</Text>
-              </Col>
+      <AsyncBoundary
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        isEmpty={Boolean(data) && data.events.length === 0}
+        loadingTip="Crunching the catalogue…"
+        emptyDescription="Nothing to report yet — create your first event."
+        emptyAction={
+          <Button type="primary" onClick={() => navigate('/admin/events')} style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}>
+            Add event
+          </Button>
+        }
+      >
+        {stats && (
+          <>
+            <Row gutter={[20, 20]} style={{ marginBottom: '1.5rem' }}>
+              {statCards.map((stat) => (
+                <Col xs={24} sm={12} xl={6} key={stat.title}>
+                  <Card style={{ borderRadius: 20, height: '100%' }}>
+                    <Space align="start" size="middle">
+                      <div style={{ background: stat.bg, padding: 14, borderRadius: 14 }}>{stat.icon}</div>
+                      <div>
+                        <Statistic title={stat.title} value={stat.value} valueStyle={{ fontWeight: 800, fontSize: '1.5rem' }} />
+                        <Text type="secondary" style={{ fontSize: '0.78rem' }}>{stat.hint}</Text>
+                      </div>
+                    </Space>
+                  </Card>
+                </Col>
+              ))}
             </Row>
 
-            {/* Visual Bar Graph Simulation */}
-            <div style={{ marginTop: '2rem', background: '#f8fafc', padding: '1.5rem', borderRadius: '16px', border: '1px solid #e2e8f0' }}>
-              <Text type="secondary" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Category Revenue Share</Text>
-              
-              <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-                    <span>🎵 Music Concerts</span>
-                    <span>₹5.80 Lakhs (46%)</span>
+            {stats.showsWithoutTiers > 0 && (
+              <Alert
+                type="warning"
+                showIcon
+                message={`${stats.showsWithoutTiers} show ${stats.showsWithoutTiers === 1 ? 'slot has' : 'slots have'} no ticket tiers`}
+                description="A show with no tiers cannot be booked — it shows up but has nothing to sell."
+                action={
+                  <Button size="small" type="primary" icon={<TagOutlined />} onClick={() => navigate('/admin/ticket-types')}>
+                    Add tiers
+                  </Button>
+                }
+                style={{ borderRadius: 12, marginBottom: '1.5rem' }}
+              />
+            )}
+
+            <Row gutter={[20, 20]}>
+              <Col xs={24} xl={16}>
+                <Card
+                  style={{ borderRadius: 20 }}
+                  styles={{ body: { padding: 0 } }}
+                  title={<span style={{ fontWeight: 800 }}>Show slots &amp; occupancy</span>}
+                  extra={<Button type="link" onClick={() => navigate('/admin/shows')}>Manage</Button>}
+                >
+                  <Table
+                    columns={showColumns}
+                    dataSource={stats.shows}
+                    rowKey="id"
+                    scroll={{ x: 'max-content' }}
+                    pagination={{ pageSize: 6, showTotal: (total) => `${total} show slots` }}
+                  />
+                </Card>
+              </Col>
+
+              <Col xs={24} xl={8}>
+                <Card style={{ borderRadius: 20, marginBottom: '1.25rem' }} title={<span style={{ fontWeight: 800 }}>Overall occupancy</span>}>
+                  <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+                    <Progress
+                      type="dashboard"
+                      percent={stats.occupancy}
+                      strokeColor={stats.occupancy > 85 ? '#f5222d' : '#6366f1'}
+                      size={160}
+                    />
+                    <div style={{ marginTop: 12 }}>
+                      <Text type="secondary" style={{ fontSize: '0.85rem' }}>
+                        {stats.soldSeats} of {stats.totalSeats} seats booked across {stats.totalTiers} tiers
+                      </Text>
+                    </div>
                   </div>
-                  <Progress percent={46} strokeColor="#722ed1" showInfo={false} />
-                </div>
+                </Card>
 
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-                    <span>🎙️ Standup Comedy</span>
-                    <span>₹3.20 Lakhs (26%)</span>
-                  </div>
-                  <Progress percent={26} strokeColor="#eb2f96" showInfo={false} />
-                </div>
+                <Card style={{ borderRadius: 20, marginBottom: '1.25rem' }} title={<span style={{ fontWeight: 800 }}>Events by category</span>}>
+                  <Space direction="vertical" style={{ width: '100%' }} size="small">
+                    {Object.entries(
+                      data.events.reduce((acc, e) => {
+                        const key = e.category || 'UNCATEGORISED';
+                        acc[key] = (acc[key] || 0) + 1;
+                        return acc;
+                      }, {}),
+                    ).map(([key, count]) => {
+                      const meta = categoryMeta(key === 'UNCATEGORISED' ? null : key);
+                      return (
+                        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{meta.icon} {meta.label}</span>
+                          <Tag color="purple" style={{ borderRadius: 10, marginInlineEnd: 0 }}>{count}</Tag>
+                        </div>
+                      );
+                    })}
+                  </Space>
+                </Card>
 
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 600, marginBottom: '4px' }}>
-                    <span>⚽ Sports & Matches</span>
-                    <span>₹2.10 Lakhs (17%)</span>
-                  </div>
-                  <Progress percent={17} strokeColor="#52c41a" showInfo={false} />
-                </div>
-              </div>
-            </div>
-          </Card>
-        </Col>
-
-        {/* Quick Category Stats */}
-        <Col xs={24} lg={8}>
-          <Card
-            style={{ borderRadius: '20px', boxShadow: '0 4px 18px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0', height: '100%' }}
-            title={<span style={{ fontWeight: 800 }}>Top Cities by Sales</span>}
-          >
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderRadius: '12px' }}>
-                <Space>
-                  <span style={{ fontSize: '1.4rem' }}>🏙️</span>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>Mumbai</div>
-                    <Text type="secondary" style={{ fontSize: '0.75rem' }}>1,840 tickets sold</Text>
-                  </div>
-                </Space>
-                <Tag color="purple">₹4.8L</Tag>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderRadius: '12px' }}>
-                <Space>
-                  <span style={{ fontSize: '1.4rem' }}>🏛️</span>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>Delhi-NCR</div>
-                    <Text type="secondary" style={{ fontSize: '0.75rem' }}>1,420 tickets sold</Text>
-                  </div>
-                </Space>
-                <Tag color="blue">₹3.6L</Tag>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderRadius: '12px' }}>
-                <Space>
-                  <span style={{ fontSize: '1.4rem' }}>🌳</span>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>Bengaluru</div>
-                    <Text type="secondary" style={{ fontSize: '0.75rem' }}>1,180 tickets sold</Text>
-                  </div>
-                </Space>
-                <Tag color="green">₹2.9L</Tag>
-              </div>
-            </Space>
-          </Card>
-        </Col>
-
-      </Row>
-
-      {/* Recent Bookings Table */}
-      <Card
-        style={{ borderRadius: '20px', boxShadow: '0 4px 18px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0', marginBottom: '2rem' }}
-        title={<span style={{ fontWeight: 800 }}>Recent Customer Bookings</span>}
-        extra={<Button type="link" onClick={() => navigate('/my-bookings')}>View All Bookings</Button>}
-      >
-        <Table
-          columns={bookingsColumns}
-          dataSource={recentBookingsData}
-          pagination={false}
-          size="middle"
-        />
-      </Card>
-
-      {/* Recent Events Table */}
-      <Card
-        style={{ borderRadius: '20px', boxShadow: '0 4px 18px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0' }}
-        title={<span style={{ fontWeight: 800 }}>Active Event Inventory</span>}
-        extra={<Button type="link" onClick={() => navigate('/events')}>Manage All Events</Button>}
-      >
-        <Table
-          columns={eventsColumns}
-          dataSource={recentEventsData}
-          pagination={{ pageSize: 4 }}
-          size="middle"
-        />
-      </Card>
+                <Card style={{ borderRadius: 20 }}>
+                  <Space align="start">
+                    <InfoCircleOutlined style={{ color: '#6366f1', fontSize: 18, marginTop: 2 }} />
+                    <div>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Booking totals not shown</div>
+                      <Text type="secondary" style={{ fontSize: '0.82rem' }}>
+                        The API has no admin endpoint for listing bookings — <code>/api/bookings/me</code> only
+                        returns the caller&apos;s own. The seat and revenue figures above are derived from ticket-tier
+                        stock instead.{' '}
+                        <Tooltip title="A GET /api/admin/bookings endpoint would let this panel show real booking rows.">
+                          <span style={{ color: '#6366f1', cursor: 'help' }}>Why?</span>
+                        </Tooltip>
+                      </Text>
+                    </div>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
+          </>
+        )}
+      </AsyncBoundary>
 
     </div>
   );

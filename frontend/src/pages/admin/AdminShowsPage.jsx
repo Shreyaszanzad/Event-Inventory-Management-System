@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Table,
   Card,
@@ -7,19 +7,18 @@ import {
   Input,
   Select,
   DatePicker,
-  TimePicker,
   Tag,
   Space,
   Modal,
   Form,
-  InputNumber,
   Typography,
   Popconfirm,
   message,
   Row,
   Col,
   Progress,
-  Tooltip
+  Tooltip,
+  Alert,
 } from 'antd';
 import {
   PlusOutlined,
@@ -28,265 +27,321 @@ import {
   DeleteOutlined,
   CalendarOutlined,
   ClockCircleOutlined,
-  EnvironmentOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  TagOutlined,
 } from '@ant-design/icons';
-import { EVENTS } from '../../data/mockData';
 import dayjs from 'dayjs';
+import { listAllEvents } from '../../api/events';
+import { listShowsForEvent, listTicketTypes, createShow, updateShow, deleteShow } from '../../api/shows';
+import { clearCatalogueCache } from '../../api/enrich';
+import { useApiData } from '../../hooks/useApiData';
+import AsyncBoundary, { InlineError } from '../../components/AsyncBoundary';
+import { formatDate, formatTime, toApiDateTime } from '../../utils/format';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 
+/**
+ * Admin show-slot CRUD against `/api/admin/**` (integration plan §3.6, YG-9).
+ *
+ * There is no "list every show" endpoint — shows are read per event
+ * (`GET /api/events/{id}/shows`) — so this page fans out: one call for the event
+ * list, then one per event, then one per show for its tiers (to render seat
+ * occupancy). At demo scale that is a handful of parallel requests. If the
+ * catalogue grows, the fix is a bulk admin endpoint, not more fan-out; the event
+ * filter below keeps it bounded in the meantime.
+ *
+ * `ShowRequest` carries a single field, `showDatetime`. The mock form's venue
+ * override, capacity and status have no column on `Show` — capacity lives on the
+ * ticket tiers, and status is server-managed.
+ */
 const AdminShowsPage = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Initial shows flattened from EVENTS mock dataset
-  const initialShows = EVENTS.flatMap((e) =>
-    (e.shows || []).map((s, idx) => ({
-      key: `${e.id}-${s.id || idx}`,
-      showId: `SHOW-${e.id.toUpperCase()}-0${idx + 1}`,
-      eventId: e.id,
-      eventTitle: e.title,
-      categoryName: e.categoryName,
-      venue: s.venue || e.venue,
-      date: s.date,
-      time: s.time,
-      totalCapacity: s.seatsLeft + 80,
-      seatsLeft: s.seatsLeft,
-      status: s.status || 'Available',
-      statusColor: s.status === 'Fast Filling' ? 'volcano' : 'green'
-    }))
-  );
-
-  const [showsList, setShowsList] = useState(initialShows);
+  const eventIdParam = searchParams.get('eventId');
+  const [selectedEventId, setSelectedEventId] = useState(eventIdParam ? Number(eventIdParam) : 'all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState('all');
 
-  // Modal States
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [currentEditingShow, setCurrentEditingShow] = useState(null);
+  const [editing, setEditing] = useState(null); // null = closed, { eventId } = create, { …show } = edit
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [form] = Form.useForm();
 
-  const [addForm] = Form.useForm();
-  const [editForm] = Form.useForm();
+  const fetchShows = useCallback(async () => {
+    const events = await listAllEvents();
+    const scoped = selectedEventId === 'all' ? events : events.filter((e) => e.id === selectedEventId);
 
-  // Filtered Shows
-  const filteredShows = showsList.filter((s) => {
-    const matchesSearch =
-      !searchQuery ||
-      s.eventTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.venue.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.showId.toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesStatus =
-      selectedStatus === 'all' || s.status === selectedStatus;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  // Handle Add Show
-  const handleAddShowSubmit = (values) => {
-    const targetEvent = EVENTS.find((e) => e.id === values.eventId) || EVENTS[0];
-    const newShow = {
-      key: `show-${Date.now()}`,
-      showId: `SHOW-NEW-${Math.floor(100 + Math.random() * 900)}`,
-      eventId: targetEvent.id,
-      eventTitle: targetEvent.title,
-      categoryName: targetEvent.categoryName,
-      venue: values.venue || targetEvent.venue,
-      date: values.date ? values.date.format('DD MMM YYYY') : '25 SEP 2026',
-      time: values.time ? values.time.format('hh:mm A') : '07:00 PM',
-      totalCapacity: values.totalCapacity || 150,
-      seatsLeft: values.totalCapacity || 150,
-      status: 'Available',
-      statusColor: 'green'
-    };
-
-    setShowsList([newShow, ...showsList]);
-    setIsAddModalOpen(false);
-    addForm.resetFields();
-    message.success('New Show Slot created successfully!');
-  };
-
-  // Handle Edit Show Open
-  const handleOpenEditModal = (record) => {
-    setCurrentEditingShow(record);
-    editForm.setFieldsValue({
-      venue: record.venue,
-      totalCapacity: record.totalCapacity,
-      seatsLeft: record.seatsLeft,
-      status: record.status
-    });
-    setIsEditModalOpen(true);
-  };
-
-  // Handle Edit Show Submit
-  const handleEditShowSubmit = (values) => {
-    setShowsList((prev) =>
-      prev.map((s) =>
-        s.key === currentEditingShow.key
-          ? {
-              ...s,
-              venue: values.venue,
-              totalCapacity: values.totalCapacity,
-              seatsLeft: values.seatsLeft,
-              status: values.status,
-              statusColor: values.status === 'Fast Filling' ? 'volcano' : values.status === 'Sold Out' ? 'red' : 'green'
-            }
-          : s
-      )
+    const perEvent = await Promise.all(
+      scoped.map(async (event) => {
+        const shows = await listShowsForEvent(event.id).catch(() => []);
+        const withTiers = await Promise.all(
+          shows.map(async (show) => {
+            const tiers = await listTicketTypes(show.id).catch(() => []);
+            const totalQty = tiers.reduce((sum, t) => sum + (t.totalQty || 0), 0);
+            const availableQty = tiers.reduce((sum, t) => sum + (t.availableQty || 0), 0);
+            return {
+              ...show,
+              eventTitle: event.title,
+              venueName: event.venueName,
+              city: event.city,
+              tierCount: tiers.length,
+              totalQty,
+              availableQty,
+              soldQty: totalQty - availableQty,
+            };
+          }),
+        );
+        return withTiers;
+      }),
     );
-    setIsEditModalOpen(false);
-    message.success(`Show slot ${currentEditingShow.showId} updated successfully!`);
+
+    return { events, shows: perEvent.flat() };
+  }, [selectedEventId]);
+
+  const { data, loading, error, reload } = useApiData(fetchShows, [selectedEventId]);
+  const events = useMemo(() => data?.events || [], [data]);
+  const shows = useMemo(() => data?.shows || [], [data]);
+
+  // Keep the URL in step so the "manage shows" link from the events page is shareable.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (selectedEventId === 'all') next.delete('eventId');
+    else next.set('eventId', String(selectedEventId));
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventId]);
+
+  const filteredShows = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return shows;
+    return shows.filter(
+      (s) =>
+        s.eventTitle?.toLowerCase().includes(query) ||
+        s.venueName?.toLowerCase().includes(query) ||
+        String(s.id).includes(query),
+    );
+  }, [shows, searchQuery]);
+
+  const eventOptions = events.map((e) => ({ value: e.id, label: e.title }));
+
+  const openCreate = () => {
+    setActionError(null);
+    form.resetFields();
+    form.setFieldsValue({
+      eventId: selectedEventId === 'all' ? undefined : selectedEventId,
+    });
+    setEditing({});
   };
 
-  // Handle Delete Show
-  const handleDeleteShow = (showKey) => {
-    setShowsList((prev) => prev.filter((s) => s.key !== showKey));
-    message.success('Show slot removed successfully.');
+  const openEdit = (record) => {
+    setActionError(null);
+    form.setFieldsValue({
+      eventId: record.eventId,
+      showDatetime: record.showDatetime ? dayjs(record.showDatetime) : null,
+    });
+    setEditing(record);
   };
 
-  // Table Columns
+  const handleSubmit = async (values) => {
+    setSaving(true);
+    setActionError(null);
+    const payload = { showDatetime: toApiDateTime(values.showDatetime) };
+
+    try {
+      if (editing?.id) {
+        await updateShow(editing.id, payload);
+        message.success('Show slot updated.');
+      } else {
+        await createShow(values.eventId, payload);
+        message.success('Show slot created. Add ticket tiers next so it can be booked.');
+      }
+      clearCatalogueCache();
+      setEditing(null);
+      reload();
+    } catch (err) {
+      setActionError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (record) => {
+    setActionError(null);
+    try {
+      await deleteShow(record.id);
+      clearCatalogueCache();
+      message.success('Show slot deleted.');
+      reload();
+    } catch (err) {
+      setActionError(err);
+    }
+  };
+
   const columns = [
     {
-      title: 'Show ID',
-      dataIndex: 'showId',
-      key: 'showId',
-      render: (text) => <strong style={{ color: '#6366f1' }}>{text}</strong>
+      title: 'Show',
+      dataIndex: 'id',
+      key: 'id',
+      render: (id) => <strong style={{ color: '#6366f1' }}>#{id}</strong>,
     },
     {
-      title: 'Event Title & Category',
+      title: 'Event',
       dataIndex: 'eventTitle',
       key: 'eventTitle',
       render: (text, record) => (
         <div>
-          <div style={{ fontWeight: 800, color: '#0f172a' }}>{text}</div>
-          <Tag color="purple" style={{ borderRadius: '8px', fontSize: '0.75rem', marginTop: '2px' }}>
-            {record.categoryName}
-          </Tag>
+          <div style={{ fontWeight: 800 }}>{text}</div>
+          <Text type="secondary" style={{ fontSize: '0.8rem' }}>
+            {[record.venueName, record.city].filter(Boolean).join(', ') || 'Venue TBA'}
+          </Text>
         </div>
-      )
+      ),
     },
     {
-      title: 'Venue',
-      dataIndex: 'venue',
-      key: 'venue',
-      render: (venue) => (
-        <span style={{ fontSize: '0.85rem', color: '#334155' }}>
-          <EnvironmentOutlined style={{ color: '#ec4899', marginRight: '6px' }} />
-          {venue}
-        </span>
-      )
-    },
-    {
-      title: 'Date & Time',
-      dataIndex: 'date',
-      key: 'date',
-      render: (date, record) => (
+      title: 'Date & time',
+      dataIndex: 'showDatetime',
+      key: 'showDatetime',
+      sorter: (a, b) => new Date(a.showDatetime) - new Date(b.showDatetime),
+      render: (showDatetime) => (
         <div style={{ fontSize: '0.85rem', color: '#475569' }}>
-          <div><CalendarOutlined style={{ marginRight: '6px', color: '#6366f1' }} />{date}</div>
-          <div><ClockCircleOutlined style={{ marginRight: '6px', color: '#fa8c16' }} />{record.time}</div>
+          <div><CalendarOutlined style={{ marginRight: 6, color: '#6366f1' }} />{formatDate(showDatetime)}</div>
+          <div><ClockCircleOutlined style={{ marginRight: 6, color: '#fa8c16' }} />{formatTime(showDatetime)}</div>
         </div>
-      )
+      ),
     },
     {
-      title: 'Seats & Occupancy',
-      dataIndex: 'seatsLeft',
-      key: 'seatsLeft',
-      render: (seatsLeft, record) => {
-        const sold = record.totalCapacity - seatsLeft;
-        const percent = Math.round((sold / record.totalCapacity) * 100);
+      title: 'Seats',
+      dataIndex: 'availableQty',
+      key: 'availableQty',
+      render: (availableQty, record) => {
+        if (record.tierCount === 0) {
+          return (
+            <Tag color="orange" style={{ borderRadius: 10 }}>
+              No ticket tiers yet
+            </Tag>
+          );
+        }
+        const percentSold = record.totalQty ? Math.round((record.soldQty / record.totalQty) * 100) : 0;
         return (
-          <div style={{ width: '130px' }}>
+          <div style={{ width: '140px' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 600, display: 'flex', justifyContent: 'space-between' }}>
-              <span>{seatsLeft} left</span>
-              <span>{percent}% sold</span>
+              <span>{availableQty} left</span>
+              <span>{percentSold}% sold</span>
             </div>
-            <Progress percent={percent} size="small" strokeColor={percent > 85 ? '#f5222d' : '#6366f1'} showInfo={false} />
+            <Progress
+              percent={percentSold}
+              size="small"
+              strokeColor={percentSold > 85 ? '#f5222d' : '#6366f1'}
+              showInfo={false}
+            />
+            <Text type="secondary" style={{ fontSize: '0.72rem' }}>
+              {record.tierCount} tier{record.tierCount === 1 ? '' : 's'} · {record.totalQty} total
+            </Text>
           </div>
         );
-      }
+      },
     },
     {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status, record) => (
-        <Tag color={record.statusColor} style={{ borderRadius: '10px', fontWeight: 600 }}>
-          {status}
+      render: (status) => (
+        <Tag color={status === 'ACTIVE' ? 'green' : 'default'} style={{ borderRadius: 10, fontWeight: 600 }}>
+          {status || 'ACTIVE'}
         </Tag>
-      )
+      ),
     },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
-          <Tooltip title="Edit Show Slot">
+          <Tooltip title="Manage ticket tiers">
             <Button
               type="text"
-              icon={<EditOutlined style={{ color: '#6366f1' }} />}
-              onClick={() => handleOpenEditModal(record)}
+              icon={<TagOutlined style={{ color: '#0ea5e9' }} />}
+              onClick={() => navigate(`/admin/ticket-types?showId=${record.id}`)}
             />
           </Tooltip>
 
+          <Tooltip title="Edit show slot">
+            <Button type="text" icon={<EditOutlined style={{ color: '#6366f1' }} />} onClick={() => openEdit(record)} />
+          </Tooltip>
+
           <Popconfirm
-            title="Delete Show Slot?"
-            description="Are you sure you want to remove this show slot?"
-            onConfirm={() => handleDeleteShow(record.key)}
+            title="Delete this show slot?"
+            description="Existing bookings for it may block the delete."
+            onConfirm={() => handleDelete(record)}
             okText="Delete"
             cancelText="Cancel"
             okButtonProps={{ danger: true }}
           >
-            <Tooltip title="Delete Show Slot">
+            <Tooltip title="Delete show slot">
               <Button type="text" danger icon={<DeleteOutlined />} />
             </Tooltip>
           </Popconfirm>
         </Space>
-      )
-    }
+      ),
+    },
   ];
 
   return (
     <div>
-      
-      {/* Title Bar & Add Action */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: '1.5rem' }}>
         <div>
-          <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
-            Show Slots Management
+          <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
+            Show Slots
           </Title>
           <Text type="secondary" style={{ fontSize: '0.9rem' }}>
-            Schedule show dates, time slots, and seat capacity allocations
+            Schedule the dates and times an event runs
           </Text>
         </div>
 
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          size="large"
-          onClick={() => setIsAddModalOpen(true)}
-          style={{
-            borderRadius: '12px',
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-            fontWeight: 700,
-            boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
-          }}
-        >
-          Add New Show Slot
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={reload} style={{ borderRadius: 12, fontWeight: 600 }}>
+            Refresh
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            size="large"
+            onClick={openCreate}
+            disabled={events.length === 0}
+            style={{
+              borderRadius: '12px',
+              background: events.length === 0 ? undefined : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              fontWeight: 700,
+            }}
+          >
+            Add show slot
+          </Button>
+        </Space>
       </div>
 
-      {/* Filter Control Bar */}
-      <Card
-        style={{ borderRadius: '20px', marginBottom: '1.5rem', boxShadow: '0 4px 18px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0' }}
-        bodyStyle={{ padding: '1rem' }}
-      >
+      <InlineError error={actionError} onClose={() => setActionError(null)} />
+
+      {!loading && events.length === 0 && (
+        <Alert
+          type="info"
+          showIcon
+          message="Create an event first"
+          description="Show slots hang off an event, so there is nothing to schedule yet."
+          action={
+            <Button type="primary" onClick={() => navigate('/admin/events')}>
+              Go to events
+            </Button>
+          }
+          style={{ borderRadius: 12, marginBottom: '1.5rem' }}
+        />
+      )}
+
+      <Card style={{ borderRadius: '20px', marginBottom: '1.5rem' }} styles={{ body: { padding: '1rem' } }}>
         <Row gutter={[16, 16]} align="middle">
-          <Col xs={24} sm={12} md={10}>
+          <Col xs={24} sm={12} md={9}>
             <Input
               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="Search by event title, show ID, or venue..."
+              placeholder="Search by event, venue or show id…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               allowClear
@@ -294,99 +349,89 @@ const AdminShowsPage = () => {
             />
           </Col>
 
-          <Col xs={12} sm={8} md={6}>
+          <Col xs={24} sm={8} md={9}>
             <Select
-              value={selectedStatus}
-              onChange={setSelectedStatus}
+              value={selectedEventId}
+              onChange={setSelectedEventId}
               style={{ width: '100%' }}
-              options={[
-                { value: 'all', label: 'All Statuses' },
-                { value: 'Available', label: '🟢 Available' },
-                { value: 'Fast Filling', label: '🟠 Fast Filling' },
-                { value: 'Sold Out', label: '🔴 Sold Out' }
-              ]}
+              showSearch
+              optionFilterProp="label"
+              options={[{ value: 'all', label: 'All events' }, ...eventOptions]}
             />
           </Col>
 
-          <Col xs={12} sm={4} md={8} style={{ textAlign: 'right' }}>
+          <Col xs={24} sm={4} md={6} style={{ textAlign: 'right' }}>
             <Button
               type="text"
               icon={<ReloadOutlined />}
               onClick={() => {
                 setSearchQuery('');
-                setSelectedStatus('all');
+                setSelectedEventId('all');
               }}
               style={{ color: '#64748b', fontWeight: 600 }}
             >
-              Reset Filters
+              Reset filters
             </Button>
           </Col>
         </Row>
       </Card>
 
-      {/* Shows Table */}
-      <Card
-        style={{ borderRadius: '20px', boxShadow: '0 4px 18px rgba(0,0,0,0.03)', border: '1px solid #e2e8f0' }}
-        bodyStyle={{ padding: 0 }}
-      >
-        <Table
-          columns={columns}
-          dataSource={filteredShows}
-          pagination={{ pageSize: 6, showTotal: (total) => `Total ${total} show slots` }}
-        />
+      <Card style={{ borderRadius: '20px' }} styles={{ body: { padding: 0 } }}>
+        <AsyncBoundary
+          loading={loading}
+          error={error}
+          onRetry={reload}
+          isEmpty={Boolean(data) && shows.length === 0 && events.length > 0}
+          loadingTip="Loading show slots…"
+          emptyDescription="No show slots scheduled for this selection yet."
+          emptyAction={
+            <Button type="primary" onClick={openCreate} style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}>
+              Add show slot
+            </Button>
+          }
+        >
+          <Table
+            columns={columns}
+            dataSource={filteredShows}
+            rowKey="id"
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: 8, showTotal: (total) => `${total} show slots` }}
+          />
+        </AsyncBoundary>
       </Card>
 
-      {/* Add Show Modal */}
       <Modal
-        title={<h3 style={{ margin: 0, fontWeight: 800 }}>Schedule New Show Slot</h3>}
-        open={isAddModalOpen}
-        onCancel={() => setIsAddModalOpen(false)}
+        title={<h3 style={{ margin: 0, fontWeight: 800 }}>{editing?.id ? 'Edit show slot' : 'Schedule show slot'}</h3>}
+        open={editing !== null}
+        onCancel={() => setEditing(null)}
         footer={null}
-        width={580}
+        width={560}
         centered
-        style={{ borderRadius: '24px' }}
+        destroyOnHidden
       >
-        <Form
-          form={addForm}
-          layout="vertical"
-          onFinish={handleAddShowSubmit}
-          style={{ marginTop: '1rem' }}
-        >
+        <Form form={form} layout="vertical" onFinish={handleSubmit} style={{ marginTop: '1rem' }} requiredMark={false}>
           <Form.Item
             name="eventId"
-            label="Select Parent Event"
-            rules={[{ required: true, message: 'Please select an event' }]}
+            label="Event"
+            rules={[{ required: true, message: 'Please choose the parent event' }]}
           >
-            <Select size="large" style={{ borderRadius: '10px' }} placeholder="Select Event">
-              {EVENTS.map((e) => (
-                <Option key={e.id} value={e.id}>{e.title}</Option>
-              ))}
-            </Select>
+            {/* The API has no "move a show to another event" route, so this locks on edit. */}
+            <Select
+              size="large"
+              showSearch
+              optionFilterProp="label"
+              disabled={Boolean(editing?.id)}
+              options={eventOptions}
+              placeholder="Select event"
+            />
           </Form.Item>
-
-          <Form.Item name="venue" label="Venue Name (Optional override)">
-            <Input placeholder="Leave blank to use default event venue" size="large" style={{ borderRadius: '10px' }} />
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="date" label="Show Date" rules={[{ required: true, message: 'Select date' }]}>
-                <DatePicker style={{ width: '100%', borderRadius: '10px' }} size="large" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="time" label="Show Time" rules={[{ required: true, message: 'Select time' }]}>
-                <TimePicker use12Hours format="h:mm a" style={{ width: '100%', borderRadius: '10px' }} size="large" />
-              </Form.Item>
-            </Col>
-          </Row>
 
           <Form.Item
-            name="totalCapacity"
-            label="Total Seat Capacity"
-            rules={[{ required: true, message: 'Enter seat capacity' }]}
+            name="showDatetime"
+            label="Show date & time"
+            rules={[{ required: true, message: 'Show date/time is required' }]}
           >
-            <InputNumber min={10} max={10000} style={{ width: '100%', borderRadius: '10px' }} size="large" placeholder="150" />
+            <DatePicker showTime format="DD MMM YYYY HH:mm" style={{ width: '100%', borderRadius: 10 }} size="large" />
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, marginTop: '1.5rem' }}>
@@ -395,73 +440,14 @@ const AdminShowsPage = () => {
               htmlType="submit"
               block
               size="large"
+              loading={saving}
               style={{
                 borderRadius: '12px',
                 background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                fontWeight: 700
+                fontWeight: 700,
               }}
             >
-              Add Show Slot
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Edit Show Modal */}
-      <Modal
-        title={<h3 style={{ margin: 0, fontWeight: 800 }}>Edit Show Slot</h3>}
-        open={isEditModalOpen}
-        onCancel={() => setIsEditModalOpen(false)}
-        footer={null}
-        width={580}
-        centered
-        style={{ borderRadius: '24px' }}
-      >
-        <Form
-          form={editForm}
-          layout="vertical"
-          onFinish={handleEditShowSubmit}
-          style={{ marginTop: '1rem' }}
-        >
-          <Form.Item name="venue" label="Venue Name">
-            <Input size="large" style={{ borderRadius: '10px' }} />
-          </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="totalCapacity" label="Total Capacity">
-                <InputNumber min={1} style={{ width: '100%', borderRadius: '10px' }} size="large" />
-              </Form.Item>
-            </Col>
-
-            <Col span={12}>
-              <Form.Item name="seatsLeft" label="Seats Left">
-                <InputNumber min={0} style={{ width: '100%', borderRadius: '10px' }} size="large" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="status" label="Availability Status">
-            <Select size="large" style={{ borderRadius: '10px' }}>
-              <Option value="Available">Available</Option>
-              <Option value="Fast Filling">Fast Filling</Option>
-              <Option value="Sold Out">Sold Out</Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, marginTop: '1.5rem' }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              block
-              size="large"
-              style={{
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                fontWeight: 700
-              }}
-            >
-              Save Show Changes
+              {editing?.id ? 'Save changes' : 'Create show slot'}
             </Button>
           </Form.Item>
         </Form>

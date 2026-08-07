@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Table,
@@ -7,20 +7,16 @@ import {
   Input,
   Select,
   DatePicker,
-  TimePicker,
   Tag,
   Space,
   Modal,
   Form,
-  InputNumber,
-  Upload,
   Typography,
   Popconfirm,
   message,
-  Breadcrumb,
   Row,
   Col,
-  Tooltip
+  Tooltip,
 } from 'antd';
 import {
   PlusOutlined,
@@ -28,283 +24,296 @@ import {
   EditOutlined,
   DeleteOutlined,
   EyeOutlined,
-  UploadOutlined,
   ReloadOutlined,
   CalendarOutlined,
-  EnvironmentOutlined
 } from '@ant-design/icons';
-import { EVENTS, CITIES, CATEGORIES } from '../../data/mockData';
 import dayjs from 'dayjs';
+import { listAllEvents, createEvent, updateEvent, deleteEvent } from '../../api/events';
+import { clearCatalogueCache } from '../../api/enrich';
+import { useApiData } from '../../hooks/useApiData';
+import AsyncBoundary, { InlineError } from '../../components/AsyncBoundary';
+import {
+  CATEGORY_OPTIONS,
+  EVENT_TYPE_OPTIONS,
+  categoryMeta,
+  deriveCityOptions,
+} from '../../constants/categories';
+import { formatDateTime, toApiDateTime, posterOf } from '../../utils/format';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 
+/**
+ * Admin event CRUD against `/api/admin/events` (integration plan §3.6, YG-9).
+ *
+ * The list here is `GET /api/admin/events`, which unlike the public feed also
+ * returns INVENTORY-type events.
+ *
+ * The form sends exactly what `EventRequestDto` accepts — title, description,
+ * type, category, venueName, city, posterUrl, startTime. `type` is **required**;
+ * the mock form's price / tag / originalPrice fields have no column and are gone
+ * (§6). Price belongs to ticket tiers, which are per-show.
+ */
 const AdminEventsPage = () => {
   const navigate = useNavigate();
-  const [eventsList, setEventsList] = useState(EVENTS);
 
-  // Filters
+  const { data, loading, error, reload } = useApiData(listAllEvents, []);
+  const events = useMemo(() => data || [], [data]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedCity, setSelectedCity] = useState('all');
+  const [selectedType, setSelectedType] = useState('all');
 
-  // Modal States
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [currentEditingEvent, setCurrentEditingEvent] = useState(null);
+  const [editing, setEditing] = useState(null); // null = closed, {} = create, {…} = edit
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [form] = Form.useForm();
 
-  const [addForm] = Form.useForm();
-  const [editForm] = Form.useForm();
+  const cityOptions = useMemo(() => deriveCityOptions(events), [events]);
 
-  // Filtered Events
-  const filteredEvents = eventsList.filter((evt) => {
-    const matchesSearch =
-      !searchQuery ||
-      evt.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      evt.venue.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredEvents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return events.filter((evt) => {
+      const matchesSearch =
+        !query ||
+        evt.title?.toLowerCase().includes(query) ||
+        evt.venueName?.toLowerCase().includes(query) ||
+        evt.city?.toLowerCase().includes(query);
+      const matchesCategory = selectedCategory === 'all' || evt.category === selectedCategory;
+      const matchesCity = selectedCity === 'all' || evt.city === selectedCity;
+      const matchesType = selectedType === 'all' || evt.type === selectedType;
+      return matchesSearch && matchesCategory && matchesCity && matchesType;
+    });
+  }, [events, searchQuery, selectedCategory, selectedCity, selectedType]);
 
-    const matchesCategory =
-      selectedCategory === 'all' || evt.category === selectedCategory;
+  const openCreate = () => {
+    setActionError(null);
+    form.resetFields();
+    form.setFieldsValue({ type: 'TICKETED' });
+    setEditing({});
+  };
 
-    const matchesCity =
-      selectedCity === 'all' || evt.city === selectedCity;
+  const openEdit = (record) => {
+    setActionError(null);
+    form.setFieldsValue({
+      title: record.title,
+      description: record.description,
+      type: record.type,
+      category: record.category,
+      venueName: record.venueName,
+      city: record.city,
+      posterUrl: record.posterUrl,
+      startTime: record.startTime ? dayjs(record.startTime) : null,
+    });
+    setEditing(record);
+  };
 
-    return matchesSearch && matchesCategory && matchesCity;
-  });
+  const handleSubmit = async (values) => {
+    setSaving(true);
+    setActionError(null);
 
-  // Handle Add Event
-  const handleAddEventSubmit = (values) => {
-    const newEvent = {
-      id: `evt-${100 + eventsList.length + 1}`,
+    const payload = {
       title: values.title,
-      category: values.category,
-      categoryName: CATEGORIES.find(c => c.id === values.category)?.name || 'General',
-      city: values.city,
-      cityName: CITIES.find(c => c.id === values.city)?.name || 'Mumbai',
-      date: values.date ? values.date.format('YYYY-MM-DD') : '2026-09-15',
-      dateFormatted: values.date ? values.date.format('DD MMM YYYY') : '15 SEP 2026',
-      time: values.time ? values.time.format('hh:mm A') : '07:00 PM',
-      venue: values.venue,
-      venueAddress: values.venueAddress || values.venue,
-      price: values.price,
-      originalPrice: values.originalPrice || values.price + 300,
-      rating: 4.8,
-      reviewsCount: 1,
-      image: values.image || 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80',
-      tag: values.tag || 'New',
-      tagColor: '#6366f1',
-      description: values.description || 'Live entertainment event.',
-      organizer: {
-        name: 'EventPass Official Host',
-        logo: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=100&q=80',
-        eventsCount: 10,
-        verified: true
-      },
-      shows: [
-        { id: 's1', date: values.date ? values.date.format('DD MMM YYYY') : '15 SEP 2026', time: '07:00 PM', status: 'Available', seatsLeft: 100 }
-      ]
+      description: values.description || null,
+      type: values.type,
+      category: values.category || null,
+      venueName: values.venueName || null,
+      city: values.city || null,
+      posterUrl: values.posterUrl || null,
+      startTime: toApiDateTime(values.startTime),
     };
 
-    setEventsList([newEvent, ...eventsList]);
-    setIsAddModalOpen(false);
-    addForm.resetFields();
-    message.success('New Event created successfully!');
+    try {
+      if (editing?.id) {
+        await updateEvent(editing.id, payload);
+        message.success(`Event "${values.title}" updated.`);
+      } else {
+        await createEvent(payload);
+        message.success(`Event "${values.title}" created.`);
+      }
+      // Bookings cache titles/venues; drop it so edits show up straight away.
+      clearCatalogueCache();
+      setEditing(null);
+      reload();
+    } catch (err) {
+      setActionError(err);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  // Handle Edit Event Open
-  const handleOpenEditModal = (record) => {
-    setCurrentEditingEvent(record);
-    editForm.setFieldsValue({
-      title: record.title,
-      category: record.category,
-      city: record.city,
-      venue: record.venue,
-      price: record.price,
-      tag: record.tag,
-      description: record.description
-    });
-    setIsEditModalOpen(true);
+  const handleDelete = async (record) => {
+    setActionError(null);
+    try {
+      await deleteEvent(record.id);
+      clearCatalogueCache();
+      message.success('Event deleted.');
+      reload();
+    } catch (err) {
+      // A 400 here usually means shows or bookings still reference the event.
+      setActionError(err);
+    }
   };
 
-  // Handle Edit Event Submit
-  const handleEditEventSubmit = (values) => {
-    setEventsList((prev) =>
-      prev.map((e) =>
-        e.id === currentEditingEvent.id
-          ? {
-              ...e,
-              title: values.title,
-              category: values.category,
-              categoryName: CATEGORIES.find(c => c.id === values.category)?.name || e.categoryName,
-              city: values.city,
-              cityName: CITIES.find(c => c.id === values.city)?.name || e.cityName,
-              venue: values.venue,
-              price: values.price,
-              tag: values.tag,
-              description: values.description
-            }
-          : e
-      )
-    );
-    setIsEditModalOpen(false);
-    message.success(`Event "${values.title}" updated successfully!`);
-  };
-
-  // Handle Delete Event
-  const handleDeleteEvent = (eventId) => {
-    setEventsList((prev) => prev.filter((e) => e.id !== eventId));
-    message.success('Event deleted successfully.');
-  };
-
-  // Table Columns Setup
   const columns = [
     {
-      title: 'Banner & Event Title',
+      title: 'Event',
       dataIndex: 'title',
       key: 'title',
       render: (text, record) => (
         <Space size="middle" align="center">
           <img
-            src={record.image}
+            src={posterOf(record)}
             alt={text}
             style={{ width: '56px', height: '56px', borderRadius: '12px', objectFit: 'cover' }}
           />
           <div>
-            <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.95rem' }}>{text}</div>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem' }}>{text}</div>
             <Text type="secondary" style={{ fontSize: '0.8rem' }}>ID: {record.id}</Text>
           </div>
         </Space>
-      )
+      ),
+    },
+    {
+      title: 'Type',
+      dataIndex: 'type',
+      key: 'type',
+      render: (type) => (
+        <Tag color={type === 'TICKETED' ? 'green' : 'gold'} style={{ borderRadius: 10, fontWeight: 600 }}>
+          {type}
+        </Tag>
+      ),
     },
     {
       title: 'Category',
-      dataIndex: 'categoryName',
-      key: 'categoryName',
-      render: (cat) => <Tag color="purple" style={{ borderRadius: '10px', fontWeight: 600 }}>{cat}</Tag>
+      dataIndex: 'category',
+      key: 'category',
+      render: (category) => {
+        const meta = categoryMeta(category);
+        return (
+          <Tag color="purple" style={{ borderRadius: 10, fontWeight: 600 }}>
+            {meta.icon} {meta.label}
+          </Tag>
+        );
+      },
     },
     {
       title: 'Venue & City',
-      dataIndex: 'venue',
-      key: 'venue',
-      render: (venue, record) => (
+      dataIndex: 'venueName',
+      key: 'venueName',
+      render: (venueName, record) => (
         <div>
-          <div style={{ fontWeight: 600, color: '#1e293b' }}>{venue}</div>
-          <Tag color="blue" style={{ borderRadius: '8px', fontSize: '0.75rem', marginTop: '2px' }}>
-            {record.cityName}
-          </Tag>
+          <div style={{ fontWeight: 600 }}>{venueName || '—'}</div>
+          {record.city && (
+            <Tag color="blue" style={{ borderRadius: 8, fontSize: '0.75rem', marginTop: 2 }}>
+              {record.city}
+            </Tag>
+          )}
         </div>
-      )
+      ),
     },
     {
-      title: 'Date & Time',
-      dataIndex: 'dateFormatted',
-      key: 'dateFormatted',
-      render: (dateFormatted, record) => (
+      title: 'Starts',
+      dataIndex: 'startTime',
+      key: 'startTime',
+      render: (startTime) => (
         <div style={{ fontSize: '0.85rem', color: '#475569' }}>
-          <div><CalendarOutlined style={{ marginRight: '6px', color: '#6366f1' }} />{dateFormatted}</div>
-          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{record.time}</div>
+          <CalendarOutlined style={{ marginRight: 6, color: '#6366f1' }} />
+          {formatDateTime(startTime)}
         </div>
-      )
-    },
-    {
-      title: 'Price',
-      dataIndex: 'price',
-      key: 'price',
-      render: (price) => <span style={{ fontWeight: 800, color: '#0f172a' }}>₹{price}</span>
+      ),
     },
     {
       title: 'Status',
-      dataIndex: 'tag',
-      key: 'tag',
-      render: (tag, record) => (
-        <Tag color={record.tagColor || 'green'} style={{ borderRadius: '10px', fontWeight: 600 }}>
-          {tag || 'Active'}
+      dataIndex: 'status',
+      key: 'status',
+      render: (status) => (
+        <Tag color={status === 'ACTIVE' ? 'green' : 'default'} style={{ borderRadius: 10, fontWeight: 600 }}>
+          {status || 'ACTIVE'}
         </Tag>
-      )
+      ),
     },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
-          <Tooltip title="Preview Event">
+          <Tooltip title="Manage show slots">
             <Button
               type="text"
-              icon={<EyeOutlined />}
-              onClick={() => navigate(`/events/${record.id}`)}
+              icon={<CalendarOutlined style={{ color: '#0ea5e9' }} />}
+              onClick={() => navigate(`/admin/shows?eventId=${record.id}`)}
             />
           </Tooltip>
 
-          <Tooltip title="Edit Event">
-            <Button
-              type="text"
-              icon={<EditOutlined style={{ color: '#6366f1' }} />}
-              onClick={() => handleOpenEditModal(record)}
-            />
+          {record.type === 'TICKETED' && (
+            <Tooltip title="Preview public page">
+              <Button type="text" icon={<EyeOutlined />} onClick={() => navigate(`/events/${record.id}`)} />
+            </Tooltip>
+          )}
+
+          <Tooltip title="Edit event">
+            <Button type="text" icon={<EditOutlined style={{ color: '#6366f1' }} />} onClick={() => openEdit(record)} />
           </Tooltip>
 
           <Popconfirm
-            title="Delete Event?"
-            description="Are you sure you want to remove this event from inventory?"
-            onConfirm={() => handleDeleteEvent(record.id)}
+            title="Delete this event?"
+            description="Shows and ticket tiers under it may block the delete."
+            onConfirm={() => handleDelete(record)}
             okText="Delete"
             cancelText="Cancel"
             okButtonProps={{ danger: true }}
           >
-            <Tooltip title="Delete Event">
+            <Tooltip title="Delete event">
               <Button type="text" danger icon={<DeleteOutlined />} />
             </Tooltip>
           </Popconfirm>
         </Space>
-      )
-    }
+      ),
+    },
   ];
 
   return (
     <div>
-      
-      {/* Title & Add Event Action */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: '1.5rem' }}>
         <div>
-          <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
-            Event Inventory Management
+          <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
+            Event Management
           </Title>
           <Text type="secondary" style={{ fontSize: '0.9rem' }}>
-            Create, edit, filter, and manage live shows and inventory
+            Create and manage ticketed events and inventory events
           </Text>
         </div>
 
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          size="large"
-          onClick={() => setIsAddModalOpen(true)}
-          style={{
-            borderRadius: '12px',
-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-            fontWeight: 700,
-            boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
-          }}
-        >
-          Add New Event
-        </Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={reload} style={{ borderRadius: 12, fontWeight: 600 }}>
+            Refresh
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            size="large"
+            onClick={openCreate}
+            style={{
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              fontWeight: 700,
+            }}
+          >
+            Add event
+          </Button>
+        </Space>
       </div>
 
-      {/* Control Bar: Search & Filters */}
-      <Card
-        style={{
-          borderRadius: '20px',
-          marginBottom: '1.5rem',
-          boxShadow: '0 4px 18px rgba(0,0,0,0.03)',
-          border: '1px solid #e2e8f0'
-        }}
-        bodyStyle={{ padding: '1rem' }}
-      >
+      <InlineError error={actionError} onClose={() => setActionError(null)} />
+
+      <Card style={{ borderRadius: '20px', marginBottom: '1.5rem' }} styles={{ body: { padding: '1rem' } }}>
         <Row gutter={[16, 16]} align="middle">
-          <Col xs={24} sm={10} md={8}>
+          <Col xs={24} sm={10} md={7}>
             <Input
               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="Search event name or venue..."
+              placeholder="Search title, venue or city…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               allowClear
@@ -312,31 +321,35 @@ const AdminEventsPage = () => {
             />
           </Col>
 
-          <Col xs={12} sm={7} md={6}>
+          <Col xs={12} sm={7} md={5}>
+            <Select
+              value={selectedType}
+              onChange={setSelectedType}
+              style={{ width: '100%' }}
+              options={[{ value: 'all', label: 'All types' }, { value: 'TICKETED', label: 'Ticketed' }, { value: 'INVENTORY', label: 'Inventory' }]}
+            />
+          </Col>
+
+          <Col xs={12} sm={7} md={5}>
             <Select
               value={selectedCategory}
               onChange={setSelectedCategory}
               style={{ width: '100%' }}
-              options={[
-                { value: 'all', label: 'All Categories' },
-                ...CATEGORIES.map((c) => ({ value: c.id, label: `${c.icon} ${c.name}` }))
-              ]}
+              options={[{ value: 'all', label: 'All categories' }, ...CATEGORY_OPTIONS]}
             />
           </Col>
 
-          <Col xs={12} sm={7} md={6}>
+          <Col xs={12} sm={7} md={4}>
             <Select
               value={selectedCity}
               onChange={setSelectedCity}
               style={{ width: '100%' }}
-              options={[
-                { value: 'all', label: 'All Cities' },
-                ...CITIES.map((c) => ({ value: c.id, label: `${c.icon} ${c.name}` }))
-              ]}
+              options={[{ value: 'all', label: 'All cities' }, ...cityOptions]}
+              notFoundContent="No cities yet"
             />
           </Col>
 
-          <Col xs={24} md={4} style={{ textAlign: 'right' }}>
+          <Col xs={12} md={3} style={{ textAlign: 'right' }}>
             <Button
               type="text"
               icon={<ReloadOutlined />}
@@ -344,212 +357,98 @@ const AdminEventsPage = () => {
                 setSearchQuery('');
                 setSelectedCategory('all');
                 setSelectedCity('all');
+                setSelectedType('all');
               }}
               style={{ color: '#64748b', fontWeight: 600 }}
             >
-              Reset Filters
+              Reset
             </Button>
           </Col>
         </Row>
       </Card>
 
-      {/* Events Table */}
-      <Card
-        style={{
-          borderRadius: '20px',
-          boxShadow: '0 4px 18px rgba(0,0,0,0.03)',
-          border: '1px solid #e2e8f0'
-        }}
-        bodyStyle={{ padding: 0 }}
-      >
-        <Table
-          columns={columns}
-          dataSource={filteredEvents}
-          rowKey="id"
-          pagination={{ pageSize: 6, showTotal: (total) => `Total ${total} events` }}
-        />
+      <Card style={{ borderRadius: '20px' }} styles={{ body: { padding: 0 } }}>
+        <AsyncBoundary
+          loading={loading}
+          error={error}
+          onRetry={reload}
+          isEmpty={events.length === 0}
+          loadingTip="Loading events…"
+          emptyDescription="No events yet. Create the first one to get started."
+          emptyAction={
+            <Button type="primary" onClick={openCreate} style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}>
+              Add event
+            </Button>
+          }
+        >
+          <Table
+            columns={columns}
+            dataSource={filteredEvents}
+            rowKey="id"
+            scroll={{ x: 'max-content' }}
+            pagination={{ pageSize: 8, showTotal: (total) => `${total} events` }}
+          />
+        </AsyncBoundary>
       </Card>
 
-      {/* Add New Event Modal */}
       <Modal
-        title={<h3 style={{ margin: 0, fontWeight: 800 }}>Create New Event</h3>}
-        open={isAddModalOpen}
-        onCancel={() => setIsAddModalOpen(false)}
+        title={<h3 style={{ margin: 0, fontWeight: 800 }}>{editing?.id ? 'Edit event' : 'Create event'}</h3>}
+        open={editing !== null}
+        onCancel={() => setEditing(null)}
         footer={null}
-        width={650}
+        width={640}
         centered
-        style={{ borderRadius: '24px' }}
+        destroyOnHidden
       >
-        <Form
-          form={addForm}
-          layout="vertical"
-          onFinish={handleAddEventSubmit}
-          style={{ marginTop: '1rem' }}
-        >
-          <Form.Item
-            name="title"
-            label="Event Title"
-            rules={[{ required: true, message: 'Please enter event title' }]}
-          >
-            <Input placeholder="e.g. Arijit Singh Symphony Concert" size="large" style={{ borderRadius: '10px' }} />
+        <Form form={form} layout="vertical" onFinish={handleSubmit} style={{ marginTop: '1rem' }} requiredMark={false}>
+          <Form.Item name="title" label="Event title" rules={[{ required: true, message: 'Title is required' }]}>
+            <Input placeholder="e.g. Comedy Night Live" size="large" style={{ borderRadius: 10 }} />
           </Form.Item>
 
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                name="category"
-                label="Category"
-                rules={[{ required: true, message: 'Please select category' }]}
+                name="type"
+                label="Type"
+                // Required by the backend validator — a missing type is a 400.
+                rules={[{ required: true, message: 'Type is required (TICKETED or INVENTORY)' }]}
+                tooltip="INVENTORY events are admin-only and never appear in the public feed."
               >
-                <Select size="large" style={{ borderRadius: '10px' }} placeholder="Select Category">
-                  {CATEGORIES.map((c) => (
-                    <Option key={c.id} value={c.id}>{c.icon} {c.name}</Option>
-                  ))}
-                </Select>
+                <Select size="large" options={EVENT_TYPE_OPTIONS} placeholder="Select type" />
               </Form.Item>
             </Col>
 
-            <Col span={12}>
-              <Form.Item
-                name="city"
-                label="City"
-                rules={[{ required: true, message: 'Please select city' }]}
-              >
-                <Select size="large" style={{ borderRadius: '10px' }} placeholder="Select City">
-                  {CITIES.map((c) => (
-                    <Option key={c.id} value={c.id}>{c.icon} {c.name}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item
-                name="venue"
-                label="Venue Name"
-                rules={[{ required: true, message: 'Please enter venue name' }]}
-              >
-                <Input placeholder="e.g. Jio World Garden, BKC" size="large" style={{ borderRadius: '10px' }} />
-              </Form.Item>
-            </Col>
-
-            <Col span={8}>
-              <Form.Item
-                name="price"
-                label="Base Price (₹)"
-                rules={[{ required: true, message: 'Please enter price' }]}
-              >
-                <InputNumber min={0} style={{ width: '100%', borderRadius: '10px' }} size="large" placeholder="1499" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="date" label="Event Date">
-                <DatePicker style={{ width: '100%', borderRadius: '10px' }} size="large" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="tag" label="Tag Badge">
-                <Input placeholder="e.g. Selling Fast, Trending" size="large" style={{ borderRadius: '10px' }} />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="image" label="Banner Image URL">
-            <Input placeholder="https://images.unsplash.com/photo-..." size="large" style={{ borderRadius: '10px' }} />
-          </Form.Item>
-
-          <Form.Item name="description" label="Event Overview Description">
-            <Input.TextArea rows={3} placeholder="Provide overview details..." style={{ borderRadius: '10px' }} />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, marginTop: '1.5rem' }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              block
-              size="large"
-              style={{
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                fontWeight: 700
-              }}
-            >
-              Publish Event to Inventory
-            </Button>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Edit Event Modal */}
-      <Modal
-        title={<h3 style={{ margin: 0, fontWeight: 800 }}>Edit Event Details</h3>}
-        open={isEditModalOpen}
-        onCancel={() => setIsEditModalOpen(false)}
-        footer={null}
-        width={650}
-        centered
-        style={{ borderRadius: '24px' }}
-      >
-        <Form
-          form={editForm}
-          layout="vertical"
-          onFinish={handleEditEventSubmit}
-          style={{ marginTop: '1rem' }}
-        >
-          <Form.Item
-            name="title"
-            label="Event Title"
-            rules={[{ required: true, message: 'Please enter event title' }]}
-          >
-            <Input size="large" style={{ borderRadius: '10px' }} />
-          </Form.Item>
-
-          <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="category" label="Category">
-                <Select size="large" style={{ borderRadius: '10px' }}>
-                  {CATEGORIES.map((c) => (
-                    <Option key={c.id} value={c.id}>{c.icon} {c.name}</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-
-            <Col span={12}>
-              <Form.Item name="city" label="City">
-                <Select size="large" style={{ borderRadius: '10px' }}>
-                  {CITIES.map((c) => (
-                    <Option key={c.id} value={c.id}>{c.icon} {c.name}</Option>
-                  ))}
-                </Select>
+                <Select size="large" allowClear options={CATEGORY_OPTIONS} placeholder="Select category" />
               </Form.Item>
             </Col>
           </Row>
 
           <Row gutter={16}>
-            <Col span={16}>
-              <Form.Item name="venue" label="Venue Name">
-                <Input size="large" style={{ borderRadius: '10px' }} />
+            <Col span={14}>
+              <Form.Item name="venueName" label="Venue name">
+                <Input placeholder="e.g. Grand Convention Hall" size="large" style={{ borderRadius: 10 }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="price" label="Base Price (₹)">
-                <InputNumber min={0} style={{ width: '100%', borderRadius: '10px' }} size="large" />
+
+            <Col span={10}>
+              <Form.Item name="city" label="City" tooltip="Free text — the public filter list is built from whatever you enter here.">
+                <Input placeholder="e.g. Nagpur" size="large" style={{ borderRadius: 10 }} />
               </Form.Item>
             </Col>
           </Row>
 
-          <Form.Item name="tag" label="Tag Badge">
-            <Input size="large" style={{ borderRadius: '10px' }} />
+          <Form.Item name="startTime" label="Starts at">
+            <DatePicker showTime format="DD MMM YYYY HH:mm" style={{ width: '100%', borderRadius: 10 }} size="large" />
           </Form.Item>
 
-          <Form.Item name="description" label="Event Description">
-            <Input.TextArea rows={3} style={{ borderRadius: '10px' }} />
+          <Form.Item name="posterUrl" label="Poster image URL">
+            <Input placeholder="https://…" size="large" style={{ borderRadius: 10 }} />
+          </Form.Item>
+
+          <Form.Item name="description" label="Description">
+            <Input.TextArea rows={3} placeholder="What is this event about?" style={{ borderRadius: 10 }} />
           </Form.Item>
 
           <Form.Item style={{ marginBottom: 0, marginTop: '1.5rem' }}>
@@ -558,13 +457,14 @@ const AdminEventsPage = () => {
               htmlType="submit"
               block
               size="large"
+              loading={saving}
               style={{
                 borderRadius: '12px',
                 background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                fontWeight: 700
+                fontWeight: 700,
               }}
             >
-              Save Changes
+              {editing?.id ? 'Save changes' : 'Create event'}
             </Button>
           </Form.Item>
         </Form>
