@@ -13,9 +13,10 @@ import {
 } from '@ant-design/icons';
 import { listAllEvents } from '../../api/events';
 import { listShowsForEvent, listTicketTypes } from '../../api/shows';
+import { listInventory, listEventInventory } from '../../api/inventory';
 import { useApiData } from '../../hooks/useApiData';
 import AsyncBoundary from '../../components/AsyncBoundary';
-import { categoryMeta } from '../../constants/categories';
+import { categoryMeta, inventoryCategoryMeta } from '../../constants/categories';
 import { formatDateTime, formatMoney, formatMoneyShort } from '../../utils/format';
 
 const { Title, Text } = Typography;
@@ -52,7 +53,18 @@ const AdminDashboardPage = () => {
       }),
     );
 
-    return { events, byEvent: perEvent };
+    // Inventory: the catalogue, plus what each INVENTORY-type event is holding.
+    // Both are best-effort — a failure here must not blank the ticketing dashboard.
+    const inventoryItems = await listInventory().catch(() => []);
+    const inventoryEvents = events.filter((e) => e.type === 'INVENTORY');
+    const inventoryByEvent = await Promise.all(
+      inventoryEvents.map(async (event) => ({
+        event,
+        allocations: await listEventInventory(event.id).catch(() => []),
+      })),
+    );
+
+    return { events, byEvent: perEvent, inventoryItems, inventoryByEvent };
   }, []);
 
   const { data, loading, error, reload } = useApiData(fetchOverview, []);
@@ -71,7 +83,23 @@ const AdminDashboardPage = () => {
       0,
     );
 
+    // Only ALLOCATED rows hold stock; RETURNED and CANCELLED are history.
+    const liveAllocations = (data.inventoryByEvent || []).flatMap((entry) =>
+      entry.allocations.filter((a) => a.status === 'ALLOCATED'),
+    );
+    const unitsOwned = (data.inventoryItems || []).reduce((sum, i) => sum + (i.totalQty || 0), 0);
+    const unitsOut = liveAllocations.reduce((sum, a) => sum + (a.allocatedQty || 0), 0);
+
     return {
+      inventoryItemCount: (data.inventoryItems || []).length,
+      retiredItems: (data.inventoryItems || []).filter((i) => i.status === 'RETIRED').length,
+      unitsOwned,
+      unitsOut,
+      kitDeployedValue: liveAllocations.reduce((sum, a) => sum + Number(a.lineValue || 0), 0),
+      inventoryUtilisation: unitsOwned ? Math.round((unitsOut / unitsOwned) * 100) : 0,
+      lowStockItems: (data.inventoryItems || []).filter(
+        (i) => i.status === 'ACTIVE' && i.totalQty > 0 && i.availableQty / i.totalQty <= 0.15,
+      ),
       ticketedEvents: data.events.filter((e) => e.type === 'TICKETED').length,
       inventoryEvents: data.events.filter((e) => e.type === 'INVENTORY').length,
       totalEvents: data.events.length,
@@ -327,6 +355,149 @@ const AdminDashboardPage = () => {
                 </Card>
               </Col>
             </Row>
+
+            {/* ── Inventory ─────────────────────────────────────────────
+                Only rendered when there is inventory to talk about, so a
+                ticketing-only deployment sees the dashboard it had before. */}
+            {stats.inventoryItemCount > 0 && (
+              <Row gutter={[20, 20]} style={{ marginTop: '1.5rem' }}>
+                <Col xs={24} xl={16}>
+                  <Card
+                    style={{ borderRadius: 20, height: '100%' }}
+                    title={<span style={{ fontWeight: 800 }}>Inventory on events</span>}
+                    extra={
+                      <Button type="link" onClick={() => navigate('/admin/event-inventory')} style={{ fontWeight: 600 }}>
+                        Manage
+                      </Button>
+                    }
+                  >
+                    {(data.inventoryByEvent || []).length === 0 ? (
+                      <Text type="secondary">
+                        No inventory events yet. Kit is allocated to events of type INVENTORY.
+                      </Text>
+                    ) : (
+                      <Table
+                        rowKey={(row) => row.event.id}
+                        dataSource={data.inventoryByEvent}
+                        pagination={false}
+                        size="small"
+                        columns={[
+                          {
+                            title: 'Event',
+                            key: 'event',
+                            render: (_, row) => (
+                              <div>
+                                <div style={{ fontWeight: 700 }}>{row.event.title}</div>
+                                <Text type="secondary" style={{ fontSize: '0.78rem' }}>
+                                  {[row.event.venueName, row.event.city].filter(Boolean).join(', ') || 'Venue TBA'}
+                                </Text>
+                              </div>
+                            ),
+                          },
+                          {
+                            title: 'Line items',
+                            key: 'lines',
+                            align: 'right',
+                            render: (_, row) => row.allocations.filter((a) => a.status === 'ALLOCATED').length,
+                          },
+                          {
+                            title: 'Units out',
+                            key: 'units',
+                            align: 'right',
+                            render: (_, row) =>
+                              row.allocations
+                                .filter((a) => a.status === 'ALLOCATED')
+                                .reduce((sum, a) => sum + (a.allocatedQty || 0), 0),
+                          },
+                          {
+                            title: 'Kit value',
+                            key: 'value',
+                            align: 'right',
+                            render: (_, row) => (
+                              <span style={{ fontWeight: 700, color: '#4f46e5' }}>
+                                {formatMoney(
+                                  row.allocations
+                                    .filter((a) => a.status === 'ALLOCATED')
+                                    .reduce((sum, a) => sum + Number(a.lineValue || 0), 0),
+                                )}
+                              </span>
+                            ),
+                          },
+                        ]}
+                      />
+                    )}
+                  </Card>
+                </Col>
+
+                <Col xs={24} xl={8}>
+                  <Card
+                    style={{ borderRadius: 20, marginBottom: '1.25rem' }}
+                    title={<span style={{ fontWeight: 800 }}>Stock utilisation</span>}
+                  >
+                    <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+                      <Progress
+                        type="dashboard"
+                        percent={stats.inventoryUtilisation}
+                        strokeColor={stats.inventoryUtilisation > 85 ? '#f5222d' : '#0ea5e9'}
+                        size={150}
+                      />
+                      <div style={{ marginTop: 12 }}>
+                        <Text type="secondary" style={{ fontSize: '0.85rem' }}>
+                          {stats.unitsOut} of {stats.unitsOwned} units out across{' '}
+                          {stats.inventoryItemCount} item{stats.inventoryItemCount === 1 ? '' : 's'}
+                        </Text>
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        <Text strong style={{ color: '#4f46e5' }}>
+                          {formatMoneyShort(stats.kitDeployedValue)}
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: '0.78rem' }}> of kit deployed</Text>
+                      </div>
+                    </div>
+                  </Card>
+
+                  <Card
+                    style={{ borderRadius: 20 }}
+                    title={<span style={{ fontWeight: 800 }}>Running low</span>}
+                  >
+                    {stats.lowStockItems.length === 0 ? (
+                      <Text type="secondary" style={{ fontSize: '0.85rem' }}>
+                        Every active item has more than 15% of its stock free.
+                      </Text>
+                    ) : (
+                      <Space direction="vertical" style={{ width: '100%' }} size="small">
+                        {stats.lowStockItems.map((item) => {
+                          const meta = inventoryCategoryMeta(item.category);
+                          return (
+                            <div
+                              key={item.id}
+                              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                            >
+                              <span style={{ fontSize: '0.85rem' }}>
+                                {meta.icon} {item.name}
+                              </span>
+                              <Tag
+                                color={item.availableQty === 0 ? 'red' : 'orange'}
+                                style={{ borderRadius: 10, marginInlineEnd: 0 }}
+                              >
+                                {item.availableQty} left
+                              </Tag>
+                            </div>
+                          );
+                        })}
+                      </Space>
+                    )}
+                    {stats.retiredItems > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <Text type="secondary" style={{ fontSize: '0.78rem' }}>
+                          {stats.retiredItems} retired item{stats.retiredItems === 1 ? '' : 's'} not counted above.
+                        </Text>
+                      </div>
+                    )}
+                  </Card>
+                </Col>
+              </Row>
+            )}
           </>
         )}
       </AsyncBoundary>
