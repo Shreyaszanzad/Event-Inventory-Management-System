@@ -15,7 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
+import com.softpoly.eventinventory.common.time.AppTime;
 import java.util.List;
 
 @Service
@@ -56,7 +56,7 @@ public class BookingService {
                 .showId(show.getId())
                 .bookingReference(generateReference())
                 .status(BookingStatus.PENDING)
-                .expiresAt(LocalDateTime.now().plusMinutes(holdMinutes)) // seats are HELD until paid
+                .expiresAt(AppTime.now().plusMinutes(holdMinutes)) // seats are HELD until paid
                 .build();
         BigDecimal total = BigDecimal.ZERO;
 
@@ -106,7 +106,7 @@ public class BookingService {
             case PENDING -> { /* fall through */ }
         }
 
-        if (booking.getExpiresAt() != null && booking.getExpiresAt().isBefore(LocalDateTime.now())) {
+        if (booking.getExpiresAt() != null && booking.getExpiresAt().isBefore(AppTime.now())) {
             releaseSeats(booking);
             booking.setStatus(BookingStatus.EXPIRED);
             bookingRepository.save(booking);
@@ -137,7 +137,7 @@ public class BookingService {
 
         Show show = showRepository.findById(booking.getShowId()).orElse(null);
         if (show != null && show.getShowDatetime() != null
-                && show.getShowDatetime().isBefore(LocalDateTime.now())) {
+                && show.getShowDatetime().isBefore(AppTime.now())) {
             throw new BadRequestException("Cannot cancel after the show has started");
         }
 
@@ -157,7 +157,7 @@ public class BookingService {
     @Transactional
     public int releaseExpiredHolds() {
         List<Booking> expired = bookingRepository
-                .findByStatusAndExpiresAtBefore(BookingStatus.PENDING, LocalDateTime.now());
+                .findByStatusAndExpiresAtBefore(BookingStatus.PENDING, AppTime.now());
         for (Booking booking : expired) {
             releaseSeats(booking);
             booking.setStatus(BookingStatus.EXPIRED);

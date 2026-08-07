@@ -3,6 +3,8 @@ package com.softpoly.eventinventory.auth;
 import jakarta.persistence.*;
 import lombok.*;
 
+import com.softpoly.eventinventory.common.time.AppTime;
+
 import java.time.LocalDateTime;
 
 /** A single issued OTP for a phone number. The code itself is stored hashed, never in clear text. */
@@ -40,6 +42,6 @@ public class OtpToken {
 
     @PrePersist
     void onCreate() {
-        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (createdAt == null) createdAt = AppTime.now();
     }
 }

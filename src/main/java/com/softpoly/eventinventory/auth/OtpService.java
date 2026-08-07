@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
-import java.time.LocalDateTime;
+import com.softpoly.eventinventory.common.time.AppTime;
 
 /**
  * Generates and verifies one-time passwords. The OTP is hashed (BCrypt) before storage.
@@ -72,7 +72,7 @@ public class OtpService {
 
         // 2) Resend cooldown: block a new request too soon after the previous one.
         otpTokenRepository.findTopByPhoneOrderByCreatedAtDesc(phone).ifPresent(last -> {
-            if (last.getCreatedAt().plusSeconds(resendCooldownSeconds).isAfter(LocalDateTime.now())) {
+            if (last.getCreatedAt().plusSeconds(resendCooldownSeconds).isAfter(AppTime.now())) {
                 throw new TooManyRequestsException(
                         "Please wait " + resendCooldownSeconds + " seconds before requesting another OTP.");
             }
@@ -85,7 +85,7 @@ public class OtpService {
         OtpToken token = OtpToken.builder()
                 .phone(phone)
                 .otpHash(passwordEncoder.encode(code))
-                .expiresAt(LocalDateTime.now().plusMinutes(expiryMinutes))
+                .expiresAt(AppTime.now().plusMinutes(expiryMinutes))
                 .used(false)
                 .attempts(0)
                 .build();
@@ -110,7 +110,7 @@ public class OtpService {
                 .findTopByPhoneAndUsedFalseOrderByCreatedAtDesc(phone)
                 .orElseThrow(() -> new BadRequestException("No active OTP. Please request a new one."));
 
-        if (token.getExpiresAt().isBefore(LocalDateTime.now())) {
+        if (token.getExpiresAt().isBefore(AppTime.now())) {
             throw new BadRequestException("OTP has expired, please request a new one");
         }
 

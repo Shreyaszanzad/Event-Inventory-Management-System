@@ -5,6 +5,8 @@ import com.softpoly.eventinventory.common.enums.UserStatus;
 import jakarta.persistence.*;
 import lombok.*;
 
+import com.softpoly.eventinventory.common.time.AppTime;
+
 import java.time.LocalDateTime;
 
 /**
@@ -52,7 +54,7 @@ public class User {
 
     @PrePersist
     void onCreate() {
-        if (createdAt == null) createdAt = LocalDateTime.now();
+        if (createdAt == null) createdAt = AppTime.now();
         if (status == null) status = UserStatus.ACTIVE;
     }
 }
