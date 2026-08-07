@@ -1,0 +1,2978 @@
+From f83cd4f83cd52b6542df6e1d951523aac091c9b3 Mon Sep 17 00:00:00 2001
+From: adesh chaudhari <superbhel7@gmail.com>
+Date: Fri, 7 Aug 2026 08:28:30 +0530
+Subject: [PATCH 5/9] feat(frontend): wire the catalogue pages and delete
+ mockData.js
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+YG-5, YG-7, YG-13, YG-14. Every rename in plan section 4 applied.
+
+mockData.js is gone entirely — no page imports it any more. The hero carousel
+now features real events, so an empty database shows an empty state instead of
+three events that do not exist.
+
+Fields with no backing column are dropped rather than faked (plan 6): rating,
+reviewsCount, organizer, venueAddress, terms, tag/tagColor, originalPrice, and
+the per-tier features list. An event has no price at all — price lives on
+ticket tiers, which are per show — so cards link to the show picker instead of
+quoting a number.
+
+Removed the client-side convenience fee and 18% GST. The backend computes
+totalAmount as the sum of unitPrice x quantity and nothing else, so those lines
+showed the user a total the server never agrees with (plan 2.5).
+
+Quantity selectors cap at availableQty and disable at zero; the server still
+rejects overselling atomically with a 400 we surface verbatim.
+---
+ frontend/src/components/EventCard.jsx      | 117 +++++
+ frontend/src/data/mockData.js              | 289 -----------
+ frontend/src/pages/EventDetailsPage.jsx    | 550 ++++++++-------------
+ frontend/src/pages/EventsListingPage.jsx   | 385 +++++----------
+ frontend/src/pages/HomePage.jsx            | 387 +++++++--------
+ frontend/src/pages/ShowSelectionPage.jsx   | 355 ++++++++-----
+ frontend/src/pages/TicketSelectionPage.jsx | 545 +++++++++++---------
+ 7 files changed, 1144 insertions(+), 1484 deletions(-)
+ create mode 100644 frontend/src/components/EventCard.jsx
+ delete mode 100644 frontend/src/data/mockData.js
+
+diff --git a/frontend/src/components/EventCard.jsx b/frontend/src/components/EventCard.jsx
+new file mode 100644
+index 0000000..6266768
+--- /dev/null
++++ b/frontend/src/components/EventCard.jsx
+@@ -0,0 +1,117 @@
++import React from 'react';
++import { useNavigate } from 'react-router-dom';
++import { Card, Typography, Space, Tag, Button } from 'antd';
++import { CalendarOutlined, EnvironmentOutlined, ArrowRightOutlined } from '@ant-design/icons';
++import { categoryMeta } from '../constants/categories';
++import { formatDateTime, posterOf } from '../utils/format';
++
++const { Title, Text } = Typography;
++
++/**
++ * One event tile, shared by the homepage and the events listing.
++ *
++ * Renders only fields the API actually returns. The mock data's `rating`,
++ * `reviewsCount`, `price`, `originalPrice` and `tag` have no backing column, so
++ * they are gone (integration plan §6) — an event's price lives on its ticket
++ * tiers, which are per-show, and showing a fake one here would mislead.
++ */
++const EventCard = ({ event, onWishlistToggle, wishlisted = false, className = '' }) => {
++  const navigate = useNavigate();
++  const meta = categoryMeta(event.category);
++  const open = () => navigate(`/events/${event.id}`);
++
++  return (
++    <Card
++      className={`event-card ${className}`.trim()}
++      hoverable
++      onClick={open}
++      cover={
++        <div className="event-card-img-container">
++          <img alt={event.title} src={posterOf(event)} className="event-card-img" />
++
++          <span className="event-badge" style={{ backgroundColor: meta.color }}>
++            {meta.icon} {meta.label}
++          </span>
++
++          {onWishlistToggle && (
++            <div
++              className="event-wishlist-btn"
++              onClick={(e) => {
++                e.stopPropagation();
++                onWishlistToggle(event.id);
++              }}
++              style={{
++                color: wishlisted ? '#ec4899' : 'white',
++                background: wishlisted ? 'rgba(236,72,153,0.85)' : undefined,
++              }}
++            >
++              ♥
++            </div>
++          )}
++        </div>
++      }
++    >
++      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
++        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
++          <Text
++            style={{
++              fontSize: '0.75rem',
++              textTransform: 'uppercase',
++              letterSpacing: '0.6px',
++              color: 'var(--primary)',
++              fontWeight: 700,
++            }}
++          >
++            {meta.label}
++          </Text>
++          {event.city && (
++            <Tag color="purple" style={{ borderRadius: 12, marginInlineEnd: 0 }}>
++              {event.city}
++            </Tag>
++          )}
++        </div>
++
++        <Title
++          level={5}
++          style={{ margin: 0, fontWeight: 700, fontSize: '1.05rem', lineHeight: 1.3, color: 'var(--text-primary)' }}
++        >
++          {event.title}
++        </Title>
++
++        <Space style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>
++          <CalendarOutlined /> {formatDateTime(event.startTime)}
++        </Space>
++        <Space style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>
++          <EnvironmentOutlined /> {event.venueName || 'Venue to be announced'}
++        </Space>
++
++        <div className="card-price-row">
++          <Text style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
++            Pick a show to see ticket tiers
++          </Text>
++
++          <Button
++            type="primary"
++            icon={<ArrowRightOutlined />}
++            onClick={(e) => {
++              e.stopPropagation();
++              open();
++            }}
++            style={{
++              borderRadius: '50px',
++              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++              border: 'none',
++              fontWeight: 600,
++              boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
++              padding: '0 18px',
++            }}
++          >
++            View
++          </Button>
++        </div>
++      </div>
++    </Card>
++  );
++};
++
++export default EventCard;
+diff --git a/frontend/src/data/mockData.js b/frontend/src/data/mockData.js
+deleted file mode 100644
+index 537c78b..0000000
+--- a/frontend/src/data/mockData.js
++++ /dev/null
+@@ -1,289 +0,0 @@
+-export const CITIES = [
+-  { id: 'mumbai',  name: 'Mumbai', icon: '🏙️', popular: true },
+-  { id: 'pune',    name: 'Pune',   icon: '🎓', popular: true },
+-  { id: 'nagpur',  name: 'Nagpur', icon: '🍊', popular: true },
+-];
+-
+-export const CATEGORIES = [
+-  { id: 'music', name: 'Music Concerts', icon: '🎵', count: '45+ Events', color: '#722ed1', bg: '#f9f0ff' },
+-  { id: 'comedy', name: 'Standup Comedy', icon: '🎙️', count: '32+ Shows', color: '#eb2f96', bg: '#fff0f6' },
+-  { id: 'sports', name: 'Sports & Matches', icon: '⚽', count: '18+ Matches', color: '#52c41a', bg: '#f6ffed' },
+-  { id: 'workshops', name: 'Workshops & Expo', icon: '🎨', count: '28+ Sessions', color: '#fa8c16', bg: '#fff7e6' },
+-  { id: 'theatre', name: 'Theatre & Drama', icon: '🎭', count: '14+ Plays', color: '#13c2c2', bg: '#e6fffb' },
+-  { id: 'nightlife', name: 'Parties & DJ Nights', icon: '🍸', count: '50+ Parties', color: '#f5222d', bg: '#fff1f0' },
+-];
+-
+-export const MOCK_USER_PROFILE = {
+-  name: 'Rahul Sharma',
+-  email: 'rahul.sharma@example.com',
+-  mobile: '9876543210',
+-  city: 'Mumbai',
+-  memberSince: 'January 2024',
+-  avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80'
+-};
+-
+-export const MOCK_BOOKINGS = [
+-  {
+-    bookingId: 'EVT-BK-2026-98421',
+-    eventId: 'evt-101',
+-    eventTitle: 'Arijit Singh Symphony Night 2026',
+-    categoryName: 'Music Concert',
+-    image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80',
+-    date: '12 AUG 2026',
+-    time: '07:00 PM',
+-    venue: 'Jio World Garden, BKC',
+-    cityName: 'Mumbai',
+-    status: 'Confirmed',
+-    statusColor: 'green',
+-    totalTickets: 2,
+-    grandTotal: 2358,
+-    paymentMethod: 'UPI (Google Pay)',
+-    bookingDate: '28 JUL 2026, 04:30 PM',
+-    selectedTiers: [{ name: 'Silver Pass (General)', count: 2, price: 999 }]
+-  },
+-  {
+-    bookingId: 'EVT-BK-2026-45120',
+-    eventId: 'evt-102',
+-    eventTitle: 'Zakir Khan - Papa Bolte Hain Tour',
+-    categoryName: 'Standup Comedy',
+-    image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80',
+-    date: '18 AUG 2026',
+-    time: '06:30 PM',
+-    venue: 'Kedar Nath Sahani Auditorium',
+-    cityName: 'Delhi-NCR',
+-    status: 'Confirmed',
+-    statusColor: 'green',
+-    totalTickets: 1,
+-    grandTotal: 1228,
+-    paymentMethod: 'Credit Card (HDFC)',
+-    bookingDate: '20 JUL 2026, 09:15 AM',
+-    selectedTiers: [{ name: 'Gold VIP Pass', count: 1, price: 999 }]
+-  },
+-  {
+-    bookingId: 'EVT-BK-2025-11048',
+-    eventId: 'evt-105',
+-    eventTitle: 'The Phantom Musical Drama',
+-    categoryName: 'Theatre & Drama',
+-    image: 'https://images.unsplash.com/photo-1460723237483-7a6dc9d0b212?auto=format&fit=crop&w=800&q=80',
+-    date: '10 MAY 2025',
+-    time: '08:00 PM',
+-    venue: 'Nita Mukesh Ambani Cultural Centre',
+-    cityName: 'Mumbai',
+-    status: 'Completed',
+-    statusColor: 'blue',
+-    totalTickets: 2,
+-    grandTotal: 2950,
+-    paymentMethod: 'NetBanking (ICICI)',
+-    bookingDate: '02 MAY 2025, 02:00 PM',
+-    selectedTiers: [{ name: 'Silver Pass', count: 2, price: 1250 }]
+-  }
+-];
+-
+-export const TICKET_TIERS = [
+-  {
+-    id: 'tier-silver',
+-    name: 'Silver Pass (General Admission)',
+-    price: 999,
+-    originalPrice: 1299,
+-    availableSeats: 45,
+-    tag: 'Standard',
+-    tagColor: 'blue',
+-    features: ['Standing Access in Main Arena', 'General Entry Gate Access', 'Standard Food & Beverage Stalls']
+-  },
+-  {
+-    id: 'tier-gold',
+-    name: 'Gold VIP Pass',
+-    price: 1999,
+-    originalPrice: 2499,
+-    availableSeats: 18,
+-    tag: 'Most Popular',
+-    tagColor: 'gold',
+-    features: ['VIP Fanpit Area (Direct Front View)', 'Fast-Track Express Security Entry', '1 Complimentary Welcome Drink Voucher']
+-  },
+-  {
+-    id: 'tier-platinum',
+-    name: 'Platinum Lounge Pass',
+-    price: 3499,
+-    originalPrice: 4200,
+-    availableSeats: 6,
+-    tag: 'Exclusive',
+-    tagColor: 'purple',
+-    features: ['Front Row Premium Air-Conditioned Seating', 'Unlimited Gourmet Snacks & Cocktails', 'Dedicated Valet Parking & Meet & Greet Pass']
+-  }
+-];
+-
+-export const HERO_BANNERS = [
+-  {
+-    id: 1,
+-    title: 'Sunburn Arena Live 2026',
+-    subtitle: 'Featuring International Headliners & Immersive Visuals',
+-    category: 'Music Concert',
+-    date: 'SAT, 15 AUG 2026',
+-    venue: 'Jawaharlal Nehru Stadium, Delhi',
+-    price: '₹1,499 onwards',
+-    bgGradient: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 50%, #db2777 100%)',
+-    image: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?auto=format&fit=crop&w=1200&q=80',
+-    tag: 'SELLING FAST'
+-  },
+-  {
+-    id: 2,
+-    title: 'Laugh Out Loud - All Stars',
+-    subtitle: 'India\'s Top Standup Comedians Live On Stage',
+-    category: 'Comedy',
+-    date: 'SUN, 23 AUG 2026',
+-    venue: 'NCPA, Nariman Point, Mumbai',
+-    price: '₹799 onwards',
+-    bgGradient: 'linear-gradient(135deg, #e11d48 0%, #f97316 100%)',
+-    image: 'https://images.unsplash.com/photo-1585699324551-f6c309eedeca?auto=format&fit=crop&w=1200&q=80',
+-    tag: 'EXCLUSIVE'
+-  },
+-  {
+-    id: 3,
+-    title: 'Tech Summit & Startup Expo',
+-    subtitle: 'Network with 5,000+ Founders, VCs, and Innovators',
+-    category: 'Workshops',
+-    date: 'FRI, 04 SEP 2026',
+-    venue: 'BIEC, Bengaluru',
+-    price: '₹2,999 onwards',
+-    bgGradient: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)',
+-    image: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1200&q=80',
+-    tag: 'FEATURED'
+-  }
+-];
+-
+-export const EVENTS = [
+-  {
+-    id: 'evt-101',
+-    title: 'Arijit Singh Symphony Night 2026',
+-    category: 'music',
+-    categoryName: 'Music Concert',
+-    city: 'mumbai',
+-    cityName: 'Mumbai',
+-    date: '2026-08-12',
+-    dateFormatted: '12 AUG 2026',
+-    time: '07:00 PM',
+-    venue: 'Jio World Garden',
+-    venueAddress: 'Plot No C-64, G Block, BKC, Bandra East, Mumbai, Maharashtra 400051',
+-    price: 1999,
+-    originalPrice: 2499,
+-    rating: 4.9,
+-    reviewsCount: 1240,
+-    image: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=800&q=80',
+-    tag: 'Trending',
+-    tagColor: '#722ed1',
+-    isFeatured: true,
+-    description: 'Experience an unforgettable evening as India\'s premier playback singer Arijit Singh performs live with a 45-piece grand orchestra. Hear hits like Tum Hi Ho, Channa Mereya, Apna Bana Le, and Kesariya re-imagined with spectacular symphonic arrangements and world-class laser light production.',
+-    organizer: {
+-      name: 'Sunburn & Percept Live Entertainment',
+-      logo: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=100&q=80',
+-      eventsCount: 84,
+-      verified: true
+-    },
+-    shows: [
+-      { id: 's1', date: '12 AUG 2026', time: '04:00 PM', status: 'Available', seatsLeft: 120, venue: 'Jio World Garden, BKC' },
+-      { id: 's2', date: '12 AUG 2026', time: '07:30 PM', status: 'Fast Filling', seatsLeft: 14, venue: 'Jio World Garden, BKC' },
+-      { id: 's3', date: '13 AUG 2026', time: '07:00 PM', status: 'Available', seatsLeft: 85, venue: 'Jio World Garden, BKC' }
+-    ],
+-    terms: [
+-      'Tickets are non-refundable once booked.',
+-      'Age Limit: 5+ years. Children above 5 require a full ticket.',
+-      'Gates open 2 hours prior to showtime.',
+-      'Outside food, beverages, and cameras are strictly prohibited.'
+-    ]
+-  },
+-  {
+-    id: 'evt-102',
+-    title: 'Zakir Khan - Papa Bolte Hain Tour',
+-    category: 'comedy',
+-    categoryName: 'Standup Comedy',
+-    city: 'delhi',
+-    cityName: 'Delhi-NCR',
+-    date: '2026-08-18',
+-    dateFormatted: '18 AUG 2026',
+-    time: '06:30 PM',
+-    venue: 'Kedar Nath Sahani Auditorium',
+-    venueAddress: 'Press Road, Minto Road, Civic Centre, New Delhi 110002',
+-    price: 999,
+-    originalPrice: 1299,
+-    rating: 4.8,
+-    reviewsCount: 890,
+-    image: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=800&q=80',
+-    tag: 'Almost Full',
+-    tagColor: '#f5222d',
+-    isFeatured: true,
+-    description: 'The Sakht Launda returns with his brand-new 90-minute solo standup show "Papa Bolte Hain". Unraveling hilarious stories of Indian households, middle-class aspirations, father-son dynamics, and heartbreak with Zakir\'s signature charm.',
+-    organizer: {
+-      name: 'OML Comedy Network',
+-      logo: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80',
+-      eventsCount: 140,
+-      verified: true
+-    },
+-    shows: [
+-      { id: 's1', date: '18 AUG 2026', time: '06:30 PM', status: 'Fast Filling', seatsLeft: 8, venue: 'Kedar Nath Sahani Auditorium' },
+-      { id: 's2', date: '18 AUG 2026', time: '09:00 PM', status: 'Available', seatsLeft: 45, venue: 'Kedar Nath Sahani Auditorium' }
+-    ],
+-    terms: [
+-      'Show language: Hindi.',
+-      'Age Limit: 16+ years.',
+-      'No entry permitted after 15 minutes of show start.'
+-    ]
+-  },
+-  {
+-    id: 'evt-103',
+-    title: 'Grand Champions T20 Derby Finals',
+-    category: 'sports',
+-    categoryName: 'Sports & Matches',
+-    city: 'bengaluru',
+-    cityName: 'Bengaluru',
+-    date: '2026-08-22',
+-    dateFormatted: '22 AUG 2026',
+-    time: '04:00 PM',
+-    venue: 'M. Chinnaswamy Stadium',
+-    venueAddress: 'MG Road, Bengaluru, Karnataka 560001',
+-    price: 1499,
+-    originalPrice: 1800,
+-    rating: 4.9,
+-    reviewsCount: 3100,
+-    image: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=800&q=80',
+-    tag: 'Hot Deal',
+-    tagColor: '#fa8c16',
+-    isFeatured: true,
+-    description: 'Witness the high-octane championship final match live under lights! Top international stars battle out for the coveted T20 Trophy. Experience electrifying atmosphere, DJ music, cheerleader performances, and VIP hospitality boxes.',
+-    organizer: {
+-      name: 'Karnataka Sports Alliance',
+-      logo: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=100&q=80',
+-      eventsCount: 32,
+-      verified: true
+-    },
+-    shows: [
+-      { id: 's1', date: '22 AUG 2026', time: '04:00 PM', status: 'Available', seatsLeft: 450, venue: 'M. Chinnaswamy Stadium' }
+-    ],
+-    terms: [
+-      'Re-entry is not permitted.',
+-      'Helmets, bags, water bottles prohibited inside stadium premises.'
+-    ]
+-  }
+-];
+-
+-export const FEATURES = [
+-  {
+-    title: 'Instant E-Tickets',
+-    description: 'Get your QR code tickets instantly on SMS, Email, and WhatsApp.',
+-    icon: '⚡'
+-  },
+-  {
+-    title: '100% Verified Sellers',
+-    description: 'Guaranteed entry with verified venue pass validation.',
+-    icon: '🛡️'
+-  },
+-  {
+-    title: 'Easy Cancellation',
+-    description: 'Hassle-free 100% refund policy for eligible events.',
+-    icon: '🔄'
+-  },
+-  {
+-    title: '24/7 Priority Support',
+-    description: 'Dedicated customer helpline for smooth booking experience.',
+-    icon: '💬'
+-  }
+-];
+diff --git a/frontend/src/pages/EventDetailsPage.jsx b/frontend/src/pages/EventDetailsPage.jsx
+index dc42d71..ab0eb1d 100644
+--- a/frontend/src/pages/EventDetailsPage.jsx
++++ b/frontend/src/pages/EventDetailsPage.jsx
+@@ -1,404 +1,240 @@
+-import React, { useState } from 'react';
++import React, { useCallback } from 'react';
+ import { useParams, useNavigate } from 'react-router-dom';
+-import {
+-  Row,
+-  Col,
+-  Card,
+-  Button,
+-  Tag,
+-  Typography,
+-  Space,
+-  Avatar,
+-  Breadcrumb,
+-  Modal,
+-  Radio,
+-  InputNumber,
+-  Divider,
+-  message,
+-  Alert
+-} from 'antd';
++import { Row, Col, Card, Button, Tag, Typography, Space, Breadcrumb, Divider, Empty } from 'antd';
+ import {
+   CalendarOutlined,
+   EnvironmentOutlined,
+-  StarFilled,
+   ClockCircleOutlined,
+-  CheckCircleFilled,
+-  ShareAltOutlined,
+-  HeartOutlined,
+   SafetyCertificateOutlined,
+-  InfoCircleOutlined,
+-  IdcardOutlined
++  ArrowRightOutlined,
+ } from '@ant-design/icons';
+-import { EVENTS } from '../data/mockData';
++import { getEvent } from '../api/events';
++import { listShowsForEvent } from '../api/shows';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary from '../components/AsyncBoundary';
++import { categoryMeta } from '../constants/categories';
++import { formatDate, formatTime, formatDateTime, posterOf } from '../utils/format';
+ 
+ const { Title, Text, Paragraph } = Typography;
+ 
++/**
++ * Event detail, backed by `GET /api/events/{id}` plus `GET /api/events/{id}/shows`
++ * (integration plan §3.2).
++ *
++ * The mock version invented an organizer block, a star rating, a venue address,
++ * and a terms list. None of those have a backing column, so they are gone (§6) —
++ * what remains is the description, the real venue/city, and the real show slots.
++ */
+ const EventDetailsPage = () => {
+   const { id } = useParams();
+   const navigate = useNavigate();
+ 
+-  const event = EVENTS.find((e) => e.id === id) || EVENTS[0];
+-
+-  const [selectedShow, setSelectedShow] = useState(event.shows ? event.shows[0] : null);
+-  const [ticketQuantity, setTicketQuantity] = useState(1);
+-  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
++  const fetchEvent = useCallback(() => getEvent(id), [id]);
++  const fetchShows = useCallback(() => listShowsForEvent(id), [id]);
+ 
+-  const handleBookNow = () => {
+-    navigate(`/booking/${event.id}/shows`);
+-  };
+-
+-  const handleConfirmBooking = () => {
+-    setIsBookingModalOpen(false);
+-    message.success(`Successfully selected ${ticketQuantity} ticket(s) for ${event.title}!`);
+-    navigate('/login');
+-  };
++  const { data: event, loading, error, reload } = useApiData(fetchEvent, [id]);
++  const { data: showsData, loading: showsLoading } = useApiData(fetchShows, [id]);
++  const shows = showsData || [];
+ 
+   return (
+-    <div style={{ paddingBottom: '5rem' }}>
+-      
+-      {/* Top Banner Section */}
+-      <div
+-        style={{
+-          position: 'relative',
+-          minHeight: '400px',
+-          backgroundImage: `linear-gradient(180deg, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%), url(${event.image})`,
+-          backgroundSize: 'cover',
+-          backgroundPosition: 'center',
+-          color: '#ffffff',
+-          display: 'flex',
+-          alignItems: 'flex-end',
+-          padding: '3rem 1.5rem'
+-        }}
+-      >
+-        <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
+-          <Breadcrumb
+-            items={[
+-              { title: <a onClick={() => navigate('/')} style={{ color: '#cbd5e1' }}>Home</a> },
+-              { title: <a onClick={() => navigate('/events')} style={{ color: '#cbd5e1' }}>Events</a> },
+-              { title: <span style={{ color: '#ffffff' }}>{event.title}</span> }
+-            ]}
+-            style={{ marginBottom: '1.5rem' }}
+-          />
++    <AsyncBoundary
++      loading={loading}
++      error={error}
++      onRetry={reload}
++      loadingTip="Loading event…"
++      errorTitle="Could not load this event"
++    >
++      {event && (
++        <div style={{ paddingBottom: '5rem' }}>
++
++          {/* Banner */}
++          <div
++            style={{
++              position: 'relative',
++              minHeight: '400px',
++              backgroundImage: `linear-gradient(180deg, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%), url(${posterOf(event)})`,
++              backgroundSize: 'cover',
++              backgroundPosition: 'center',
++              color: '#ffffff',
++              display: 'flex',
++              alignItems: 'flex-end',
++              padding: '3rem 1.5rem',
++            }}
++          >
++            <div style={{ maxWidth: '1280px', margin: '0 auto', width: '100%' }}>
++              <Breadcrumb
++                items={[
++                  { title: <a onClick={() => navigate('/')} style={{ color: '#cbd5e1' }}>Home</a> },
++                  { title: <a onClick={() => navigate('/events')} style={{ color: '#cbd5e1' }}>Events</a> },
++                  { title: <span style={{ color: '#ffffff' }}>{event.title}</span> },
++                ]}
++                style={{ marginBottom: '1.5rem' }}
++              />
+ 
+-          <Row gutter={[24, 24]} align="bottom">
+-            <Col xs={24} md={16}>
+               <Space style={{ marginBottom: '10px' }}>
+-                <Tag color={event.tagColor} style={{ padding: '4px 12px', fontSize: '0.85rem', borderRadius: '12px', border: 'none' }}>
+-                  {event.tag}
+-                </Tag>
+-                <Tag color="purple" style={{ padding: '4px 12px', fontSize: '0.85rem', borderRadius: '12px' }}>
+-                  {event.categoryName}
++                <Tag
++                  color={categoryMeta(event.category).color}
++                  style={{ padding: '4px 12px', fontSize: '0.85rem', borderRadius: '12px', border: 'none' }}
++                >
++                  {categoryMeta(event.category).icon} {categoryMeta(event.category).label}
+                 </Tag>
++                {event.status && (
++                  <Tag color="blue" style={{ padding: '4px 12px', fontSize: '0.85rem', borderRadius: '12px' }}>
++                    {event.status}
++                  </Tag>
++                )}
+               </Space>
+ 
+-              <Title level={1} style={{ color: '#ffffff', margin: '0 0 1rem 0', fontWeight: 800, fontSize: '2.4rem', lineHeight: '1.2' }}>
++              <Title
++                level={1}
++                style={{ color: '#ffffff', margin: '0 0 1rem 0', fontWeight: 800, fontSize: '2.4rem', lineHeight: 1.2 }}
++              >
+                 {event.title}
+               </Title>
+ 
+               <Space size="large" wrap style={{ fontSize: '0.95rem', color: '#e2e8f0' }}>
+                 <Space>
+-                  <StarFilled style={{ color: '#facc15' }} />
+-                  <strong style={{ color: '#fff' }}>{event.rating}</strong> ({event.reviewsCount} reviews)
+-                </Space>
+-                <Space>
+-                  <CalendarOutlined style={{ color: '#818cf8' }} /> {event.dateFormatted} • {event.time}
++                  <CalendarOutlined style={{ color: '#818cf8' }} /> {formatDateTime(event.startTime)}
+                 </Space>
+                 <Space>
+-                  <EnvironmentOutlined style={{ color: '#f472b6' }} /> {event.venue}, {event.cityName}
++                  <EnvironmentOutlined style={{ color: '#f472b6' }} />
++                  {[event.venueName, event.city].filter(Boolean).join(', ') || 'Venue to be announced'}
+                 </Space>
+               </Space>
+-            </Col>
+-
+-            <Col xs={24} md={8} style={{ textAlign: 'right' }}>
+-              <Space>
+-                <Button icon={<HeartOutlined />} shape="circle" size="large" />
+-                <Button icon={<ShareAltOutlined />} shape="circle" size="large" />
+-              </Space>
+-            </Col>
+-          </Row>
+-        </div>
+-      </div>
+-
+-      {/* Content Section */}
+-      <div style={{ maxWidth: '1280px', margin: '2rem auto 0 auto', padding: '0 1.5rem' }}>
+-        <Row gutter={[32, 32]}>
+-          
+-          {/* Main Details (Left 16 Cols) */}
+-          <Col xs={24} lg={16}>
+-            
+-            {/* About Event */}
+-            <Card style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-              <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                About The Event
+-              </Title>
+-              <Paragraph style={{ fontSize: '1rem', lineHeight: '1.8', color: '#334155' }}>
+-                {event.description}
+-              </Paragraph>
+-            </Card>
++            </div>
++          </div>
+ 
+-            {/* Available Show Slots */}
+-            {event.shows && event.shows.length > 0 && (
+-              <Card style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-                <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                  Select Show Date & Time
+-                </Title>
+-                <Row gutter={[16, 16]}>
+-                  {event.shows.map((show) => {
+-                    const isSelected = selectedShow?.id === show.id;
+-                    return (
+-                      <Col xs={24} sm={12} key={show.id}>
+-                        <div
+-                          onClick={() => setSelectedShow(show)}
+-                          style={{
+-                            padding: '1rem 1.25rem',
+-                            borderRadius: '16px',
+-                            border: isSelected ? '2px solid #6366f1' : '1px solid #e2e8f0',
+-                            background: isSelected ? '#f5f3ff' : '#ffffff',
+-                            cursor: 'pointer',
+-                            display: 'flex',
+-                            justifyContent: 'space-between',
+-                            alignItems: 'center',
+-                            transition: 'all 0.2s ease'
+-                          }}
+-                        >
+-                          <div>
+-                            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: isSelected ? '#4f46e5' : '#1e293b' }}>
+-                              <CalendarOutlined style={{ marginRight: '6px' }} /> {show.date}
++          {/* Content */}
++          <div style={{ maxWidth: '1280px', margin: '2rem auto 0 auto', padding: '0 1.5rem' }}>
++            <Row gutter={[32, 32]}>
++
++              <Col xs={24} lg={16}>
++                <Card style={{ borderRadius: '20px', marginBottom: '2rem' }}>
++                  <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem' }}>
++                    About The Event
++                  </Title>
++                  <Paragraph style={{ fontSize: '1rem', lineHeight: 1.8 }}>
++                    {event.description || 'No description has been added for this event yet.'}
++                  </Paragraph>
++                </Card>
++
++                <Card style={{ borderRadius: '20px', marginBottom: '2rem' }}>
++                  <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem' }}>
++                    Show Dates &amp; Times
++                  </Title>
++
++                  {showsLoading ? (
++                    <Text type="secondary">Loading show slots…</Text>
++                  ) : shows.length === 0 ? (
++                    <Empty
++                      image={Empty.PRESENTED_IMAGE_SIMPLE}
++                      description="No show slots have been scheduled for this event yet."
++                    />
++                  ) : (
++                    <Row gutter={[16, 16]}>
++                      {shows.map((show) => (
++                        <Col xs={24} sm={12} key={show.id}>
++                          <div
++                            onClick={() => navigate(`/booking/${event.id}/shows`)}
++                            style={{
++                              padding: '1rem 1.25rem',
++                              borderRadius: '16px',
++                              border: '1px solid #e2e8f0',
++                              cursor: 'pointer',
++                              display: 'flex',
++                              justifyContent: 'space-between',
++                              alignItems: 'center',
++                            }}
++                          >
++                            <div>
++                              <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
++                                <CalendarOutlined style={{ marginRight: '6px' }} /> {formatDate(show.showDatetime)}
++                              </div>
++                              <Text type="secondary" style={{ fontSize: '0.85rem' }}>
++                                <ClockCircleOutlined style={{ marginRight: '6px' }} /> {formatTime(show.showDatetime)}
++                              </Text>
+                             </div>
+-                            <Text type="secondary" style={{ fontSize: '0.85rem' }}>
+-                              <ClockCircleOutlined style={{ marginRight: '6px' }} /> {show.time}
+-                            </Text>
+-                          </div>
+-                          <div>
+-                            <Tag color={show.status === 'Fast Filling' ? 'volcano' : 'green'} style={{ borderRadius: '10px' }}>
+-                              {show.status} ({show.seatsLeft} seats)
++                            <Tag color={show.status === 'ACTIVE' ? 'green' : 'default'} style={{ borderRadius: '10px' }}>
++                              {show.status || 'ACTIVE'}
+                             </Tag>
+                           </div>
+-                        </div>
+-                      </Col>
+-                    );
+-                  })}
+-                </Row>
+-              </Card>
+-            )}
+-
+-            {/* Venue Location Details */}
+-            <Card style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-              <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                Venue & Location
+-              </Title>
+-              <Space align="start" size="middle">
+-                <div style={{ background: '#f1f5f9', padding: '14px', borderRadius: '14px', color: '#6366f1' }}>
+-                  <EnvironmentOutlined style={{ fontSize: '24px' }} />
+-                </div>
+-                <div>
+-                  <h4 style={{ margin: '0 0 4px 0', fontSize: '1.1rem', color: '#0f172a', fontWeight: 700 }}>
+-                    {event.venue}
+-                  </h4>
+-                  <Text type="secondary" style={{ fontSize: '0.9rem' }}>
+-                    {event.venueAddress}
++                        </Col>
++                      ))}
++                    </Row>
++                  )}
++                </Card>
++
++                <Card style={{ borderRadius: '20px' }}>
++                  <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem' }}>
++                    Venue
++                  </Title>
++                  <Space align="start" size="middle">
++                    <div style={{ background: '#f1f5f9', padding: '14px', borderRadius: '14px', color: '#6366f1' }}>
++                      <EnvironmentOutlined style={{ fontSize: '24px' }} />
++                    </div>
++                    <div>
++                      <h4 style={{ margin: '0 0 4px 0', fontSize: '1.1rem', fontWeight: 700 }}>
++                        {event.venueName || 'Venue to be announced'}
++                      </h4>
++                      <Text type="secondary" style={{ fontSize: '0.9rem' }}>
++                        {event.city || 'City to be announced'}
++                      </Text>
++                    </div>
++                  </Space>
++                </Card>
++              </Col>
++
++              {/* Booking rail */}
++              <Col xs={24} lg={8}>
++                <Card
++                  style={{ borderRadius: '24px', position: 'sticky', top: '100px', boxShadow: '0 10px 30px rgba(0,0,0,0.06)' }}
++                  styles={{ body: { padding: '1.75rem' } }}
++                >
++                  <Text type="secondary" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
++                    Book your seats
+                   </Text>
+-                </div>
+-              </Space>
+-
+-              {/* Map Placeholder Container */}
+-              <div
+-                style={{
+-                  marginTop: '1.5rem',
+-                  height: '180px',
+-                  borderRadius: '16px',
+-                  background: 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)',
+-                  display: 'flex',
+-                  alignItems: 'center',
+-                  justifyContent: 'center',
+-                  color: '#475569',
+-                  fontWeight: 600
+-                }}
+-              >
+-                📍 Interactive Venue Map Placeholder
+-              </div>
+-            </Card>
+ 
+-            {/* Organizer Info */}
+-            <Card style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-              <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                Organized By
+-              </Title>
+-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+-                <Space size="middle">
+-                  <Avatar size={54} src={event.organizer.logo} />
+-                  <div>
+-                    <Space>
+-                      <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: '#0f172a' }}>
+-                        {event.organizer.name}
+-                      </h4>
+-                      {event.organizer.verified && (
+-                        <CheckCircleFilled style={{ color: '#6366f1', fontSize: '16px' }} />
+-                      )}
+-                    </Space>
+-                    <Text type="secondary" style={{ display: 'block', fontSize: '0.85rem' }}>
+-                      {event.organizer.eventsCount} events hosted on EventPass
++                  <div style={{ margin: '0.75rem 0 1.25rem' }}>
++                    <Text style={{ fontSize: '0.9rem' }}>
++                      {shows.length > 0
++                        ? `${shows.length} show ${shows.length === 1 ? 'slot' : 'slots'} available. Pick one to see ticket tiers and live seat counts.`
++                        : 'Ticket sales open once show slots are scheduled.'}
+                     </Text>
+                   </div>
+-                </Space>
+-                <Button style={{ borderRadius: '12px' }}>Contact Host</Button>
+-              </div>
+-            </Card>
+ 
+-            {/* Terms & Guidelines */}
+-            <Card style={{ borderRadius: '20px', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-              <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                Event Terms & Instructions
+-              </Title>
+-              <ul style={{ paddingLeft: '1.2rem', color: '#475569', lineHeight: '1.8' }}>
+-                {event.terms ? (
+-                  event.terms.map((term, i) => <li key={i}>{term}</li>)
+-                ) : (
+-                  <li>Standard venue guidelines apply. Carry a valid photo ID proof.</li>
+-                )}
+-              </ul>
+-            </Card>
+-
+-          </Col>
+-
+-          {/* Booking Side Card (Right 8 Cols) */}
+-          <Col xs={24} lg={8}>
+-            <Card
+-              style={{
+-                borderRadius: '24px',
+-                position: 'sticky',
+-                top: '100px',
+-                boxShadow: '0 10px 30px rgba(0,0,0,0.06)',
+-                border: '1px solid #e2e8f0'
+-              }}
+-              bodyStyle={{ padding: '1.75rem' }}
+-            >
+-              <Text type="secondary" style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+-                Ticket Pricing
+-              </Text>
+-              
+-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', margin: '0.5rem 0 1.5rem 0' }}>
+-                <span style={{ fontSize: '2rem', fontWeight: 800, color: '#0f172a' }}>
+-                  ₹{event.price}
+-                </span>
+-                <Text style={{ fontSize: '0.9rem', color: '#64748b' }}>onwards</Text>
+-                {event.originalPrice && (
+-                  <Text delete style={{ fontSize: '1rem', color: '#94a3b8', marginLeft: 'auto' }}>
+-                    ₹{event.originalPrice}
+-                  </Text>
+-                )}
+-              </div>
+-
+-              <Divider style={{ margin: '1rem 0' }} />
+-
+-              <div style={{ marginBottom: '1.5rem' }}>
+-                <Text style={{ fontWeight: 600, color: '#334155', display: 'block', marginBottom: '8px' }}>
+-                  Selected Show Time:
+-                </Text>
+-                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+-                  <div style={{ fontWeight: 700, color: '#1e293b' }}>
+-                    {selectedShow?.date || event.dateFormatted}
++                  <Divider style={{ margin: '1rem 0' }} />
++
++                  <Button
++                    type="primary"
++                    size="large"
++                    block
++                    disabled={shows.length === 0}
++                    onClick={() => navigate(`/booking/${event.id}/shows`)}
++                    style={{
++                      height: '52px',
++                      borderRadius: '16px',
++                      background: shows.length === 0 ? undefined : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++                      fontWeight: 800,
++                      fontSize: '1.05rem',
++                      marginBottom: '1rem',
++                    }}
++                  >
++                    {shows.length === 0 ? 'No shows scheduled' : 'Select a show'} <ArrowRightOutlined />
++                  </Button>
++
++                  <div style={{ textAlign: 'center' }}>
++                    <Space style={{ color: '#64748b', fontSize: '0.8rem' }}>
++                      <SafetyCertificateOutlined style={{ color: '#52c41a' }} /> Seats held for 10 minutes while you check out
++                    </Space>
+                   </div>
+-                  <Text type="secondary" style={{ fontSize: '0.85rem' }}>
+-                    {selectedShow?.time || event.time}
+-                  </Text>
+-                </div>
+-              </div>
+-
+-              <Button
+-                type="primary"
+-                size="large"
+-                block
+-                onClick={handleBookNow}
+-                style={{
+-                  height: '52px',
+-                  borderRadius: '16px',
+-                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-                  fontWeight: 800,
+-                  fontSize: '1.05rem',
+-                  boxShadow: '0 8px 20px rgba(99, 102, 241, 0.35)',
+-                  marginBottom: '1rem'
+-                }}
+-              >
+-                Book Tickets Now
+-              </Button>
+-
+-              <div style={{ textAlign: 'center' }}>
+-                <Space style={{ color: '#64748b', fontSize: '0.8rem' }}>
+-                  <SafetyCertificateOutlined style={{ color: '#52c41a' }} /> 100% Genuine Pass Guarantee
+-                </Space>
+-              </div>
+-            </Card>
+-          </Col>
++                </Card>
++              </Col>
+ 
+-        </Row>
+-      </div>
+-
+-      {/* Ticket Selection Modal */}
+-      <Modal
+-        title={
+-          <div style={{ textAlign: 'center' }}>
+-            <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800 }}>Select Tickets</h3>
+-            <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem' }}>{event.title}</p>
+-          </div>
+-        }
+-        open={isBookingModalOpen}
+-        onCancel={() => setIsBookingModalOpen(false)}
+-        footer={null}
+-        width={480}
+-        centered
+-        style={{ borderRadius: '24px' }}
+-      >
+-        <div style={{ padding: '1rem 0' }}>
+-          
+-          <div style={{ marginBottom: '1.5rem', background: '#f8fafc', padding: '1rem', borderRadius: '14px' }}>
+-            <Text type="secondary" style={{ fontSize: '0.85rem' }}>Selected Schedule:</Text>
+-            <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '1rem', marginTop: '2px' }}>
+-              {selectedShow?.date} at {selectedShow?.time}
+-            </div>
+-          </div>
+-
+-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+-            <div>
+-              <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a' }}>General Admission Pass</div>
+-              <Text type="secondary" style={{ fontSize: '0.85rem' }}>₹{event.price} per ticket</Text>
+-            </div>
+-            <InputNumber
+-              min={1}
+-              max={10}
+-              value={ticketQuantity}
+-              onChange={(val) => setTicketQuantity(val || 1)}
+-              style={{ borderRadius: '10px' }}
+-            />
+-          </div>
+-
+-          <Divider />
+-
+-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+-            <Text style={{ fontWeight: 700, fontSize: '1.1rem', color: '#0f172a' }}>Total Amount:</Text>
+-            <span style={{ fontWeight: 800, fontSize: '1.4rem', color: '#6366f1' }}>
+-              ₹{event.price * ticketQuantity}
+-            </span>
++            </Row>
+           </div>
+-
+-          <Button
+-            type="primary"
+-            block
+-            size="large"
+-            onClick={handleConfirmBooking}
+-            style={{
+-              height: '48px',
+-              borderRadius: '14px',
+-              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-              fontWeight: 700
+-            }}
+-          >
+-            Proceed to Login & Pay
+-          </Button>
+         </div>
+-      </Modal>
+-
+-    </div>
++      )}
++    </AsyncBoundary>
+   );
+ };
+ 
+diff --git a/frontend/src/pages/EventsListingPage.jsx b/frontend/src/pages/EventsListingPage.jsx
+index 4e0b08f..98a84f6 100644
+--- a/frontend/src/pages/EventsListingPage.jsx
++++ b/frontend/src/pages/EventsListingPage.jsx
+@@ -1,4 +1,4 @@
+-import React, { useState, useEffect } from 'react';
++import React, { useState, useMemo, useEffect } from 'react';
+ import { useNavigate, useSearchParams } from 'react-router-dom';
+ import {
+   Row,
+@@ -9,212 +9,178 @@ import {
+   DatePicker,
+   Button,
+   Pagination,
+-  Skeleton,
+-  Empty,
+   Typography,
+-  Space,
+-  Tag,
+   Breadcrumb,
+-  Divider
+ } from 'antd';
+-import {
+-  SearchOutlined,
+-  EnvironmentOutlined,
+-  CalendarOutlined,
+-  FilterOutlined,
+-  ReloadOutlined,
+-  StarFilled,
+-  ArrowRightOutlined,
+-  AppstoreOutlined
+-} from '@ant-design/icons';
+-import { EVENTS, CITIES, CATEGORIES } from '../data/mockData';
++import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
++import { listPublicEvents } from '../api/events';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary, { EmptyState } from '../components/AsyncBoundary';
++import EventCard from '../components/EventCard';
++import { CATEGORY_OPTIONS, deriveCityOptions, categoryLabel } from '../constants/categories';
++import { parseDate } from '../utils/format';
+ 
+ const { Title, Text } = Typography;
+ 
++const PAGE_SIZE = 6;
++
++/**
++ * Events listing, backed by `GET /api/events` (integration plan §3.2).
++ *
++ * Filtering and sorting happen client-side because the API returns the whole
++ * public feed in one call and exposes no query parameters. Cities come from the
++ * events themselves — `city` is a free-text column, so a hardcoded list would go
++ * stale the moment an admin types a new one (§4).
++ *
++ * The mock `price` / `rating` sorts are gone: neither field exists on an event.
++ */
+ const EventsListingPage = () => {
+   const navigate = useNavigate();
+-  const [searchParams, setSearchParams] = useSearchParams();
++  const [searchParams] = useSearchParams();
++
++  const { data, loading, error, reload } = useApiData(listPublicEvents, []);
++  const events = useMemo(() => data || [], [data]);
+ 
+-  // Filter States
+   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
+   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all');
+   const [selectedCity, setSelectedCity] = useState(searchParams.get('city') || 'all');
+   const [selectedDate, setSelectedDate] = useState(null);
+-  const [sortBy, setSortBy] = useState('popularity');
++  const [sortBy, setSortBy] = useState('date-soonest');
+   const [currentPage, setCurrentPage] = useState(1);
+-  const [loading, setLoading] = useState(true);
+ 
+-  const pageSize = 6;
+-
+-  // Simulate loading delay for skeleton effect
++  // Links into this page carry filters in the URL (`/events?category=COMEDY`).
++  // Reading them only in `useState` would silently ignore a link clicked while
++  // already on this route, since React Router re-renders rather than remounts.
+   useEffect(() => {
+-    setLoading(true);
+-    const timer = setTimeout(() => {
+-      setLoading(false);
+-    }, 400);
+-    return () => clearTimeout(timer);
+-  }, [searchQuery, selectedCategory, selectedCity, selectedDate, sortBy, currentPage]);
++    setSearchQuery(searchParams.get('q') || '');
++    setSelectedCategory(searchParams.get('category') || 'all');
++    setSelectedCity(searchParams.get('city') || 'all');
++    setCurrentPage(1);
++  }, [searchParams]);
+ 
+-  // Filter & Sort Logic
+-  const filteredEvents = EVENTS.filter((evt) => {
+-    // Search Filter
+-    const matchesSearch =
+-      !searchQuery ||
+-      evt.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-      evt.venue.toLowerCase().includes(searchQuery.toLowerCase()) ||
+-      evt.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
++  const cityOptions = useMemo(() => deriveCityOptions(events), [events]);
+ 
+-    // Category Filter
+-    const matchesCategory =
+-      selectedCategory === 'all' || evt.category === selectedCategory;
++  const visibleEvents = useMemo(() => {
++    const query = searchQuery.trim().toLowerCase();
+ 
+-    // City Filter
+-    const matchesCity =
+-      selectedCity === 'all' || evt.city === selectedCity;
++    const filtered = events.filter((evt) => {
++      const matchesSearch =
++        !query ||
++        evt.title?.toLowerCase().includes(query) ||
++        evt.venueName?.toLowerCase().includes(query) ||
++        evt.city?.toLowerCase().includes(query) ||
++        categoryLabel(evt.category).toLowerCase().includes(query);
+ 
+-    // Date Filter
+-    const matchesDate =
+-      !selectedDate ||
+-      evt.date === selectedDate.format('YYYY-MM-DD');
++      const matchesCategory = selectedCategory === 'all' || evt.category === selectedCategory;
++      const matchesCity = selectedCity === 'all' || evt.city === selectedCity;
+ 
+-    return matchesSearch && matchesCategory && matchesCity && matchesDate;
+-  });
++      const matchesDate =
++        !selectedDate || parseDate(evt.startTime)?.isSame(selectedDate, 'day');
+ 
+-  // Sorting Logic
+-  const sortedEvents = [...filteredEvents].sort((a, b) => {
+-    if (sortBy === 'price-asc') return a.price - b.price;
+-    if (sortBy === 'price-desc') return b.price - a.price;
+-    if (sortBy === 'date-soonest') return new Date(a.date) - new Date(b.date);
+-    if (sortBy === 'popularity') return b.rating - a.rating;
+-    return 0;
+-  });
++      return matchesSearch && matchesCategory && matchesCity && matchesDate;
++    });
+ 
+-  // Pagination Slice
+-  const paginatedEvents = sortedEvents.slice(
+-    (currentPage - 1) * pageSize,
+-    currentPage * pageSize
+-  );
++    return [...filtered].sort((a, b) => {
++      if (sortBy === 'title-asc') return (a.title || '').localeCompare(b.title || '');
++      // Events with no start time sink to the bottom rather than jumping to the top.
++      const aTime = parseDate(a.startTime)?.valueOf() ?? Number.POSITIVE_INFINITY;
++      const bTime = parseDate(b.startTime)?.valueOf() ?? Number.POSITIVE_INFINITY;
++      return sortBy === 'date-latest' ? bTime - aTime : aTime - bTime;
++    });
++  }, [events, searchQuery, selectedCategory, selectedCity, selectedDate, sortBy]);
++
++  const paginatedEvents = visibleEvents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+ 
+   const handleResetFilters = () => {
+     setSearchQuery('');
+     setSelectedCategory('all');
+     setSelectedCity('all');
+     setSelectedDate(null);
+-    setSortBy('popularity');
++    setSortBy('date-soonest');
++    setCurrentPage(1);
++  };
++
++  /** Any filter change should drop you back to page 1. */
++  const withPageReset = (setter) => (value) => {
++    setter(value);
+     setCurrentPage(1);
+   };
+ 
+   return (
+     <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '2rem 1.5rem 4rem 1.5rem' }}>
+-      
+-      {/* Header Breadcrumb & Title */}
++
+       <div style={{ marginBottom: '2rem' }}>
+         <Breadcrumb
+-          items={[
+-            { title: <a onClick={() => navigate('/')}>Home</a> },
+-            { title: 'Events' }
+-          ]}
++          items={[{ title: <a onClick={() => navigate('/')}>Home</a> }, { title: 'Events' }]}
+           style={{ marginBottom: '1rem' }}
+         />
+-        <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
+-          Discover Live Events ({sortedEvents.length})
++        <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
++          Discover Live Events{!loading && !error ? ` (${visibleEvents.length})` : ''}
+         </Title>
+         <Text type="secondary" style={{ fontSize: '0.95rem' }}>
+-          Explore music concerts, standup comedy, sports derby, and workshops in your city
++          Movies, standup comedy, amusement and live events currently on sale
+         </Text>
+       </div>
+ 
+-      {/* Control Bar: Search, Filters & Sorting */}
+       <Card
+-        style={{
+-          borderRadius: '20px',
+-          marginBottom: '2rem',
+-          boxShadow: '0 4px 20px rgba(0,0,0,0.04)',
+-          border: '1px solid #e2e8f0'
+-        }}
+-        bodyStyle={{ padding: '1.25rem' }}
++        style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}
++        styles={{ body: { padding: '1.25rem' } }}
+       >
+         <Row gutter={[16, 16]} align="middle">
+-          
+-          {/* Search Box */}
+           <Col xs={24} sm={12} md={6}>
+             <Input
+               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+-              placeholder="Search event name or venue..."
++              placeholder="Search event, venue or city…"
+               value={searchQuery}
+-              onChange={(e) => {
+-                setSearchQuery(e.target.value);
+-                setCurrentPage(1);
+-              }}
++              onChange={(e) => withPageReset(setSearchQuery)(e.target.value)}
+               allowClear
+               style={{ borderRadius: '10px' }}
+             />
+           </Col>
+ 
+-          {/* Category Filter */}
+-          <Col xs={12} sm={6} md={4}>
++          <Col xs={12} sm={6} md={5}>
+             <Select
+               value={selectedCategory}
+-              onChange={(val) => {
+-                setSelectedCategory(val);
+-                setCurrentPage(1);
+-              }}
++              onChange={withPageReset(setSelectedCategory)}
+               style={{ width: '100%' }}
+-              placeholder="Category"
+-              options={[
+-                { value: 'all', label: 'All Categories' },
+-                ...CATEGORIES.map((c) => ({ value: c.id, label: `${c.icon} ${c.name}` }))
+-              ]}
++              options={[{ value: 'all', label: 'All Categories' }, ...CATEGORY_OPTIONS]}
+             />
+           </Col>
+ 
+-          {/* City Filter */}
+-          <Col xs={12} sm={6} md={4}>
++          <Col xs={12} sm={6} md={5}>
+             <Select
+               value={selectedCity}
+-              onChange={(val) => {
+-                setSelectedCity(val);
+-                setCurrentPage(1);
+-              }}
++              onChange={withPageReset(setSelectedCity)}
+               style={{ width: '100%' }}
+               placeholder="City"
+-              options={[
+-                { value: 'all', label: 'All Cities' },
+-                ...CITIES.map((c) => ({ value: c.id, label: `${c.icon} ${c.name}` }))
+-              ]}
++              options={[{ value: 'all', label: 'All Cities' }, ...cityOptions]}
++              notFoundContent="No cities yet"
+             />
+           </Col>
+ 
+-          {/* Date Filter */}
+           <Col xs={12} sm={6} md={4}>
+             <DatePicker
+               value={selectedDate}
+-              onChange={(date) => {
+-                setSelectedDate(date);
+-                setCurrentPage(1);
+-              }}
+-              placeholder="Select Date"
++              onChange={withPageReset(setSelectedDate)}
++              placeholder="Event date"
+               style={{ width: '100%', borderRadius: '10px' }}
+             />
+           </Col>
+ 
+-          {/* Sorting */}
+-          <Col xs={12} sm={6} md={4}>
++          <Col xs={12} sm={6} md={3}>
+             <Select
+               value={sortBy}
+               onChange={setSortBy}
+               style={{ width: '100%' }}
+               options={[
+-                { value: 'popularity', label: '⭐ Top Rated' },
+-                { value: 'price-asc', label: '💰 Price: Low to High' },
+-                { value: 'price-desc', label: '💎 Price: High to Low' },
+-                { value: 'date-soonest', label: '📅 Date: Soonest' }
++                { value: 'date-soonest', label: '📅 Soonest first' },
++                { value: 'date-latest', label: '🕓 Latest first' },
++                { value: 'title-asc', label: '🔤 A → Z' },
+               ]}
+             />
+           </Col>
+ 
+-          {/* Reset Filters */}
+-          <Col xs={24} md={2} style={{ textAlign: 'right' }}>
++          <Col xs={24} md={1} style={{ textAlign: 'right' }}>
+             <Button
+               type="text"
+               icon={<ReloadOutlined />}
+@@ -224,140 +190,53 @@ const EventsListingPage = () => {
+               Reset
+             </Button>
+           </Col>
+-
+         </Row>
+       </Card>
+ 
+-      {/* Events Grid / Skeleton / Empty State */}
+-      {loading ? (
+-        <Row gutter={[24, 24]}>
+-          {[1, 2, 3, 4, 5, 6].map((i) => (
+-            <Col xs={24} sm={12} lg={8} key={i}>
+-              <Card style={{ borderRadius: '16px' }}>
+-                <Skeleton.Image style={{ width: '100%', height: '180px', borderRadius: '12px' }} active />
+-                <Skeleton active paragraph={{ rows: 3 }} style={{ marginTop: '1rem' }} />
+-              </Card>
+-            </Col>
+-          ))}
+-        </Row>
+-      ) : paginatedEvents.length > 0 ? (
+-        <>
+-          <Row gutter={[24, 24]}>
+-            {paginatedEvents.map((evt) => (
+-              <Col xs={24} sm={12} lg={8} key={evt.id}>
+-                <Card
+-                  className="event-card"
+-                  hoverable
+-                  onClick={() => navigate(`/events/${evt.id}`)}
+-                  cover={
+-                    <div className="event-card-img-container">
+-                      <img alt={evt.title} src={evt.image} className="event-card-img" />
+-                      <span className="event-badge" style={{ backgroundColor: evt.tagColor }}>
+-                        {evt.tag}
+-                      </span>
+-                      <span className="event-rating-badge">
+-                        <StarFilled /> {evt.rating} ({evt.reviewsCount})
+-                      </span>
+-                    </div>
+-                  }
+-                >
+-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+-                      <Text type="secondary" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6366f1', fontWeight: 700 }}>
+-                        {evt.categoryName}
+-                      </Text>
+-                      <Tag color="purple" style={{ borderRadius: '12px' }}>
+-                        {evt.cityName}
+-                      </Tag>
+-                    </div>
+-
+-                    <Title level={5} style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem', lineHeight: '1.3' }}>
+-                      {evt.title}
+-                    </Title>
+-
+-                    <Space style={{ color: '#64748b', fontSize: '0.85rem' }}>
+-                      <CalendarOutlined /> {evt.dateFormatted} • {evt.time}
+-                    </Space>
+-                    
+-                    <Space style={{ color: '#64748b', fontSize: '0.85rem' }}>
+-                      <EnvironmentOutlined /> {evt.venue}
+-                    </Space>
+-
+-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+-                      <div>
+-                        <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Starts from</Text>
+-                        <Space align="baseline">
+-                          <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
+-                            ₹{evt.price}
+-                          </span>
+-                          {evt.originalPrice && (
+-                            <Text delete style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+-                              ₹{evt.originalPrice}
+-                            </Text>
+-                          )}
+-                        </Space>
+-                      </div>
+-
+-                      <Button
+-                        type="primary"
+-                        icon={<ArrowRightOutlined />}
+-                        onClick={(e) => {
+-                          e.stopPropagation();
+-                          navigate(`/events/${evt.id}`);
+-                        }}
+-                        style={{
+-                          borderRadius: '12px',
+-                          background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-                          fontWeight: 600
+-                        }}
+-                      >
+-                        View Details
+-                      </Button>
+-                    </div>
+-                  </div>
+-                </Card>
+-              </Col>
+-            ))}
+-          </Row>
+-
+-          {/* Pagination */}
+-          <div style={{ textAlign: 'center', marginTop: '3rem' }}>
+-            <Pagination
+-              current={currentPage}
+-              pageSize={pageSize}
+-              total={sortedEvents.length}
+-              onChange={(page) => setCurrentPage(page)}
+-              showSizeChanger={false}
+-              showTotal={(total, range) => `${range[0]}-${range[1]} of ${total} events`}
+-            />
+-          </div>
+-        </>
+-      ) : (
+-        /* Empty State */
+-        <Card style={{ borderRadius: '20px', padding: '3rem 1rem', textAlign: 'center' }}>
+-          <Empty
+-            image={Empty.PRESENTED_IMAGE_SIMPLE}
+-            description={
+-              <Space direction="vertical" size="small">
+-                <Text style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>
+-                  No events found matching your criteria
+-                </Text>
+-                <Text type="secondary">
+-                  Try adjusting your search keywords, city, or category filters.
+-                </Text>
+-              </Space>
++      <AsyncBoundary
++        loading={loading}
++        error={error}
++        onRetry={reload}
++        isEmpty={events.length === 0}
++        loadingTip="Loading events…"
++        emptyDescription="No events have been published yet."
++      >
++        {paginatedEvents.length > 0 ? (
++          <>
++            <Row gutter={[24, 24]}>
++              {paginatedEvents.map((event) => (
++                <Col xs={24} sm={12} lg={8} key={event.id}>
++                  <EventCard event={event} />
++                </Col>
++              ))}
++            </Row>
++
++            <div style={{ textAlign: 'center', marginTop: '3rem' }}>
++              <Pagination
++                current={currentPage}
++                pageSize={PAGE_SIZE}
++                total={visibleEvents.length}
++                onChange={setCurrentPage}
++                showSizeChanger={false}
++                showTotal={(total, range) => `${range[0]}-${range[1]} of ${total} events`}
++              />
++            </div>
++          </>
++        ) : (
++          <EmptyState
++            description="No events match your filters. Try widening the search, city or date."
++            action={
++              <Button
++                type="primary"
++                onClick={handleResetFilters}
++                style={{ marginTop: '1rem', borderRadius: '12px', background: '#6366f1' }}
++              >
++                Clear all filters
++              </Button>
+             }
+-          >
+-            <Button
+-              type="primary"
+-              onClick={handleResetFilters}
+-              style={{ marginTop: '1rem', borderRadius: '12px', background: '#6366f1' }}
+-            >
+-              Clear All Filters
+-            </Button>
+-          </Empty>
+-        </Card>
+-      )}
++          />
++        )}
++      </AsyncBoundary>
+ 
+     </div>
+   );
+diff --git a/frontend/src/pages/HomePage.jsx b/frontend/src/pages/HomePage.jsx
+index 365ad0c..6b4cf2f 100644
+--- a/frontend/src/pages/HomePage.jsx
++++ b/frontend/src/pages/HomePage.jsx
+@@ -1,258 +1,229 @@
+-import React, { useState } from 'react';
++import React, { useState, useCallback } from 'react';
+ import { useNavigate } from 'react-router-dom';
+-import {
+-  Row,
+-  Col,
+-  Card,
+-  Carousel,
+-  Button,
+-  Tabs,
+-  Typography,
+-  Space,
+-} from 'antd';
++import { Row, Col, Card, Carousel, Button, Tabs, Typography } from 'antd';
+ import {
+   CalendarOutlined,
+   EnvironmentOutlined,
+   ThunderboltOutlined,
+   ArrowRightOutlined,
+-  StarFilled,
+-  HeartOutlined,
+   RightOutlined,
+ } from '@ant-design/icons';
+-import { HERO_BANNERS, CATEGORIES, EVENTS, FEATURES } from '../data/mockData';
++import { listPublicEvents } from '../api/events';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary from '../components/AsyncBoundary';
++import EventCard from '../components/EventCard';
++import { CATEGORY_LABELS, categoryMeta } from '../constants/categories';
++import { formatDateTime, posterOf } from '../utils/format';
+ import { useTheme } from '../context/ThemeContext';
+ 
+ const { Title, Text } = Typography;
+ 
++/**
++ * Static marketing copy, not data. It used to sit in `mockData.js`; it lives here
++ * now so deleting the mock dataset doesn't take the section with it.
++ */
++const FEATURES = [
++  { icon: '⚡', title: 'Instant E-Tickets', description: 'Your booking reference and QR pass are ready the moment you confirm.' },
++  { icon: '🛡️', title: 'Seats Held While You Pay', description: 'Your seats are reserved for 10 minutes so nobody can take them mid-checkout.' },
++  { icon: '🔄', title: 'Cancel Anytime Before The Show', description: 'Cancelling releases your seats straight back to the pool.' },
++  { icon: '💬', title: 'Booking History In One Place', description: 'Every pass you have booked, with its live status, under My Bookings.' },
++];
++
++/**
++ * Homepage, backed by `GET /api/events` (integration plan §3.2).
++ *
++ * The hero carousel used to run off a hardcoded `HERO_BANNERS` list; it now
++ * features the first few real events, so an empty database shows an empty state
++ * instead of three events that don't exist.
++ */
+ const HomePage = () => {
+   const navigate = useNavigate();
+   const { isDarkMode } = useTheme();
+   const [activeTab, setActiveTab] = useState('all');
+   const [wishlist, setWishlist] = useState([]);
+ 
+-  const filteredEvents = activeTab === 'all'
+-    ? EVENTS
+-    : EVENTS.filter(e => e.category === activeTab);
++  const { data, loading, error, reload } = useApiData(listPublicEvents, []);
++  const events = data || [];
++
++  const toggleWishlist = useCallback((id) => {
++    setWishlist((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
++  }, []);
+ 
+-  const toggleWishlist = (e, id) => {
+-    e.stopPropagation();
+-    setWishlist(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+-  };
++  const filteredEvents = activeTab === 'all' ? events : events.filter((e) => e.category === activeTab);
++  const heroEvents = events.slice(0, 3);
+ 
++  /** Only offer a category tab when at least one live event uses it. */
++  const usedCategories = [...new Set(events.map((e) => e.category).filter(Boolean))];
+   const tabItems = [
+-    { key: 'all',       label: '🔥 All Featured' },
+-    { key: 'music',     label: '🎵 Music' },
+-    { key: 'comedy',    label: '🎙️ Comedy' },
+-    { key: 'sports',    label: '⚽ Sports' },
+-    { key: 'workshops', label: '🎨 Workshops' },
+-    { key: 'theatre',   label: '🎭 Theatre' },
++    { key: 'all', label: '🔥 All Events' },
++    ...usedCategories.map((key) => ({
++      key,
++      label: `${CATEGORY_LABELS[key]?.icon || '🎟️'} ${CATEGORY_LABELS[key]?.label || key}`,
++    })),
+   ];
+ 
+   return (
+     <div style={{ paddingBottom: '4rem' }}>
+ 
+-      {/* ── Hero Carousel ── */}
+-      <section className="hero-section" style={{ maxWidth: '1280px', margin: '1.5rem auto', padding: '0 1.5rem' }}>
+-        <Carousel autoplay autoplaySpeed={4500} effect="fade" dots={{ className: 'hero-dots' }}>
+-          {HERO_BANNERS.map((banner) => (
+-            <div key={banner.id}>
+-              <div
+-                className="hero-card"
+-                style={{ backgroundImage: `url(${banner.image})` }}
+-              >
+-                <div className="hero-overlay" />
+-                <div className="hero-content">
+-                  <span className="hero-tag">
+-                    <ThunderboltOutlined /> {banner.tag}
+-                  </span>
+-                  <h1 className="hero-title">{banner.title}</h1>
+-                  <p className="hero-subtitle">{banner.subtitle}</p>
+-
+-                  <div className="hero-meta">
+-                    <div className="hero-meta-item">
+-                      <CalendarOutlined style={{ color: '#818cf8' }} />
+-                      {banner.date}
+-                    </div>
+-                    <div className="hero-meta-item">
+-                      <EnvironmentOutlined style={{ color: '#f472b6' }} />
+-                      {banner.venue}
++      <AsyncBoundary
++        loading={loading}
++        error={error}
++        onRetry={reload}
++        isEmpty={events.length === 0}
++        loadingTip="Loading events…"
++        emptyDescription="No events are published yet. An administrator can add the first one from the admin panel."
++        emptyAction={
++          <Button
++            type="primary"
++            onClick={() => navigate('/admin/events')}
++            style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}
++          >
++            Go to admin panel
++          </Button>
++        }
++      >
++        <>
++          {/* ── Hero Carousel — built from the newest real events ── */}
++          <section className="hero-section" style={{ maxWidth: '1280px', margin: '1.5rem auto', padding: '0 1.5rem' }}>
++            <Carousel autoplay autoplaySpeed={4500} effect="fade" dots={{ className: 'hero-dots' }}>
++              {heroEvents.map((event) => (
++                <div key={event.id}>
++                  <div className="hero-card" style={{ backgroundImage: `url(${posterOf(event)})` }}>
++                    <div className="hero-overlay" />
++                    <div className="hero-content">
++                      <span className="hero-tag">
++                        <ThunderboltOutlined /> {categoryMeta(event.category).label}
++                      </span>
++                      <h1 className="hero-title">{event.title}</h1>
++                      <p className="hero-subtitle">
++                        {event.description || 'Book your seats before they are gone.'}
++                      </p>
++
++                      <div className="hero-meta">
++                        <div className="hero-meta-item">
++                          <CalendarOutlined style={{ color: '#818cf8' }} />
++                          {formatDateTime(event.startTime)}
++                        </div>
++                        <div className="hero-meta-item">
++                          <EnvironmentOutlined style={{ color: '#f472b6' }} />
++                          {[event.venueName, event.city].filter(Boolean).join(', ') || 'Venue TBA'}
++                        </div>
++                      </div>
++
++                      <Button className="hero-cta" size="large" onClick={() => navigate(`/events/${event.id}`)}>
++                        <span>
++                          Book Tickets &nbsp;
++                          <ArrowRightOutlined />
++                        </span>
++                      </Button>
+                     </div>
+                   </div>
+-
+-                  <Button
+-                    className="hero-cta"
+-                    size="large"
+-                    onClick={() => navigate('/login')}
+-                  >
+-                    <span>Book Tickets — {banner.price} &nbsp;<ArrowRightOutlined /></span>
+-                  </Button>
+                 </div>
+-              </div>
++              ))}
++            </Carousel>
++          </section>
++
++          {/* ── Categories — the backend's four, as a display map (§4) ── */}
++          <section style={{ maxWidth: '1280px', margin: '3.5rem auto 0', padding: '0 1.5rem' }}>
++            <div style={{ marginBottom: '1.5rem' }}>
++              <div className="section-accent" />
++              <Title className="section-heading" level={3}>Explore Categories</Title>
++              <Text className="section-subheading">Pick your favourite entertainment genre</Text>
+             </div>
+-          ))}
+-        </Carousel>
+-      </section>
+-
+-      {/* ── Categories ── */}
+-      <section style={{ maxWidth: '1280px', margin: '3.5rem auto 0', padding: '0 1.5rem' }}>
+-        <div style={{ marginBottom: '1.5rem' }}>
+-          <div className="section-accent" />
+-          <Title className="section-heading" level={3}>Explore Categories</Title>
+-          <Text className="section-subheading">Pick your favorite entertainment genre</Text>
+-        </div>
+-
+-        <Row gutter={[16, 16]}>
+-          {CATEGORIES.map((cat, i) => (
+-            <Col xs={12} sm={8} md={4} key={cat.id}>
+-              <div
+-                className={`category-card fade-up fade-up-delay-${Math.min(i + 1, 4)}`}
+-                style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : cat.bg }}
+-                onClick={() => setActiveTab(cat.id)}
+-              >
+-                <div className="category-icon" style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#ffffff' }}>
+-                  {cat.icon}
+-                </div>
+-                <div>
+-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+-                    {cat.name}
+-                  </div>
+-                  <Text style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{cat.count}</Text>
+-                </div>
+-              </div>
+-            </Col>
+-          ))}
+-        </Row>
+-      </section>
+-
+-      {/* ── Featured Events ── */}
+-      <section style={{ maxWidth: '1280px', margin: '4rem auto', padding: '0 1.5rem' }}>
+-        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+-          <div>
+-            <div className="section-accent" />
+-            <Title className="section-heading" level={3}>Trending &amp; Featured Events</Title>
+-            <Text className="section-subheading">Handpicked live experiences you don&apos;t want to miss</Text>
+-          </div>
+-          <Button
+-            type="text"
+-            style={{ color: 'var(--primary)', fontWeight: 600, marginTop: 4 }}
+-            onClick={() => navigate('/events')}
+-          >
+-            View all <RightOutlined />
+-          </Button>
+-        </div>
+-
+-        <Tabs
+-          activeKey={activeTab}
+-          onChange={setActiveTab}
+-          items={tabItems}
+-          style={{ marginBottom: '2rem' }}
+-        />
+ 
+-        <Row gutter={[24, 28]}>
+-          {filteredEvents.map((evt, i) => (
+-            <Col xs={24} sm={12} lg={8} key={evt.id}>
+-              <Card
+-                className={`event-card fade-up fade-up-delay-${Math.min((i % 3) + 1, 4)}`}
+-                hoverable
+-                onClick={() => navigate(`/events/${evt.id}`)}
+-                cover={
+-                  <div className="event-card-img-container">
+-                    <img alt={evt.title} src={evt.image} className="event-card-img" />
+-
+-                    {/* Tag badge */}
+-                    <span className="event-badge" style={{ backgroundColor: evt.tagColor }}>
+-                      {evt.tag}
+-                    </span>
+-
+-                    {/* Wishlist */}
++            <Row gutter={[16, 16]}>
++              {Object.entries(CATEGORY_LABELS).map(([key, meta], i) => {
++                const count = events.filter((e) => e.category === key).length;
++                return (
++                  <Col xs={12} sm={12} md={6} key={key}>
+                     <div
+-                      className="event-wishlist-btn"
+-                      onClick={(e) => toggleWishlist(e, evt.id)}
+-                      style={{ color: wishlist.includes(evt.id) ? '#ec4899' : 'white', background: wishlist.includes(evt.id) ? 'rgba(236,72,153,0.85)' : undefined }}
++                      className={`category-card fade-up fade-up-delay-${Math.min(i + 1, 4)}`}
++                      style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.04)' : meta.bg }}
++                      onClick={() => setActiveTab(key)}
+                     >
+-                      ♥
++                      <div
++                        className="category-icon"
++                        style={{ backgroundColor: isDarkMode ? 'rgba(255,255,255,0.08)' : '#ffffff' }}
++                      >
++                        {meta.icon}
++                      </div>
++                      <div>
++                        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
++                          {meta.label}
++                        </div>
++                        <Text style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
++                          {count} {count === 1 ? 'event' : 'events'}
++                        </Text>
++                      </div>
+                     </div>
+-
+-                    {/* Rating */}
+-                    <span className="event-rating-badge">
+-                      <StarFilled /> {evt.rating} ({evt.reviewsCount})
+-                    </span>
+-                  </div>
+-                }
++                  </Col>
++                );
++              })}
++            </Row>
++          </section>
++
++          {/* ── Event grid ── */}
++          <section style={{ maxWidth: '1280px', margin: '4rem auto', padding: '0 1.5rem' }}>
++            <div
++              style={{
++                display: 'flex',
++                flexWrap: 'wrap',
++                justifyContent: 'space-between',
++                alignItems: 'flex-start',
++                marginBottom: '1rem',
++              }}
++            >
++              <div>
++                <div className="section-accent" />
++                <Title className="section-heading" level={3}>Live &amp; Upcoming Events</Title>
++                <Text className="section-subheading">Everything currently on sale</Text>
++              </div>
++              <Button
++                type="text"
++                style={{ color: 'var(--primary)', fontWeight: 600, marginTop: 4 }}
++                onClick={() => navigate('/events')}
+               >
+-                <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
+-                  {/* Category label */}
+-                  <Text style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.6px', color: 'var(--primary)', fontWeight: 700 }}>
+-                    {evt.categoryName}
+-                  </Text>
+-
+-                  {/* Event Title */}
+-                  <Title level={5} style={{ margin: 0, fontWeight: 700, fontSize: '1.05rem', lineHeight: '1.3', color: 'var(--text-primary)' }}>
+-                    {evt.title}
+-                  </Title>
+-
+-                  {/* Date & Venue */}
+-                  <Space style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>
+-                    <CalendarOutlined /> {evt.date} · {evt.time}
+-                  </Space>
+-                  <Space style={{ color: 'var(--text-muted)', fontSize: '0.83rem' }}>
+-                    <EnvironmentOutlined /> {evt.venue}
+-                  </Space>
++                View all <RightOutlined />
++              </Button>
++            </div>
+ 
+-                  {/* Price & CTA */}
+-                  <div className="card-price-row">
+-                    <div>
+-                      <Text style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block' }}>Starts from</Text>
+-                      <Space align="baseline">
+-                        <span style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+-                          ₹{evt.price}
+-                        </span>
+-                        {evt.originalPrice && (
+-                          <Text delete style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+-                            ₹{evt.originalPrice}
+-                          </Text>
+-                        )}
+-                      </Space>
+-                    </div>
++            <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} style={{ marginBottom: '2rem' }} />
+ 
+-                    <Button
+-                      type="primary"
+-                      onClick={(e) => { e.stopPropagation(); navigate(`/events/${evt.id}`); }}
+-                      style={{
+-                        borderRadius: '50px',
+-                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-                        border: 'none',
+-                        fontWeight: 600,
+-                        boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
+-                        padding: '0 18px'
+-                      }}
+-                    >
+-                      Book Pass
+-                    </Button>
+-                  </div>
+-                </div>
++            {filteredEvents.length === 0 ? (
++              <Card style={{ borderRadius: 20, textAlign: 'center', padding: '2rem' }}>
++                <Text type="secondary">No events in this category yet.</Text>
+               </Card>
+-            </Col>
+-          ))}
+-        </Row>
+-      </section>
+-
+-      {/* ── Why EventPass ── */}
++            ) : (
++              <Row gutter={[24, 28]}>
++                {filteredEvents.map((event, i) => (
++                  <Col xs={24} sm={12} lg={8} key={event.id}>
++                    <EventCard
++                      event={event}
++                      className={`fade-up fade-up-delay-${Math.min((i % 3) + 1, 4)}`}
++                      wishlisted={wishlist.includes(event.id)}
++                      onWishlistToggle={toggleWishlist}
++                    />
++                  </Col>
++                ))}
++              </Row>
++            )}
++          </section>
++        </>
++      </AsyncBoundary>
++
++      {/* ── Why EventPass — static copy, shown regardless of API state ── */}
+       <section className="why-section">
+         <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
+           <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+             <div className="section-accent" style={{ margin: '0 auto 10px' }} />
+             <Title className="section-heading" level={3}>Why Book On EventPass?</Title>
+-            <Text className="section-subheading">Your trusted destination for hassle-free live ticket bookings</Text>
++            <Text className="section-subheading">Straightforward booking, with your seats protected while you check out</Text>
+           </div>
+ 
+           <Row gutter={[28, 28]}>
+             {FEATURES.map((feat, i) => (
+-              <Col xs={24} sm={12} md={6} key={i}>
+-                <Card
+-                  className={`feature-card fade-up fade-up-delay-${Math.min(i + 1, 4)}`}
+-                  bordered={false}
+-                >
++              <Col xs={24} sm={12} md={6} key={feat.title}>
++                <Card className={`feature-card fade-up fade-up-delay-${Math.min(i + 1, 4)}`} variant="borderless">
+                   <div className="feature-icon-wrap">{feat.icon}</div>
+                   <h4 style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+                     {feat.title}
+diff --git a/frontend/src/pages/ShowSelectionPage.jsx b/frontend/src/pages/ShowSelectionPage.jsx
+index 071b075..ce539ad 100644
+--- a/frontend/src/pages/ShowSelectionPage.jsx
++++ b/frontend/src/pages/ShowSelectionPage.jsx
+@@ -1,162 +1,245 @@
+-import React, { useState } from 'react';
++import React, { useState, useCallback, useEffect, useMemo } from 'react';
+ import { useParams, useNavigate } from 'react-router-dom';
+-import {
+-  Row,
+-  Col,
+-  Card,
+-  Button,
+-  Tag,
+-  Typography,
+-  Space,
+-  Steps,
+-  Breadcrumb,
+-  Badge
+-} from 'antd';
++import { Row, Col, Card, Button, Tag, Typography, Space, Steps, Breadcrumb } from 'antd';
+ import {
+   CalendarOutlined,
+   ClockCircleOutlined,
+   EnvironmentOutlined,
+   ArrowRightOutlined,
+   CheckCircleFilled,
+-  UserOutlined,
+-  TagOutlined
+ } from '@ant-design/icons';
+-import { EVENTS } from '../data/mockData';
++import { getEvent } from '../api/events';
++import { listShowsForEvent, listTicketTypes } from '../api/shows';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary from '../components/AsyncBoundary';
++import { categoryMeta } from '../constants/categories';
++import { formatDate, formatTime, formatMoneyShort, posterOf } from '../utils/format';
+ 
+ const { Title, Text } = Typography;
+ 
++/**
++ * Step 1 of booking: pick a show slot (integration plan §3.2).
++ *
++ * Each card shows live seat availability, which means loading the tiers for every
++ * show — the API has no bulk endpoint, so that is one `GET /api/shows/{id}/ticket-types`
++ * per slot, fired in parallel. Events here have a handful of shows, so this is
++ * cheap; if a slot ever grows to dozens, this is the call to batch server-side.
++ */
+ const ShowSelectionPage = () => {
+   const { eventId } = useParams();
+   const navigate = useNavigate();
+ 
+-  const event = EVENTS.find((e) => e.id === eventId) || EVENTS[0];
+-  const [selectedShowId, setSelectedShowId] = useState(event.shows ? event.shows[0].id : 's1');
++  const [selectedShowId, setSelectedShowId] = useState(null);
++
++  const fetchAll = useCallback(async () => {
++    const [event, shows] = await Promise.all([getEvent(eventId), listShowsForEvent(eventId)]);
++
++    const tiersByShow = await Promise.all(
++      shows.map((show) =>
++        listTicketTypes(show.id)
++          .then((tiers) => ({ showId: show.id, tiers }))
++          // One unreadable slot shouldn't blank the page — it just shows no seat count.
++          .catch(() => ({ showId: show.id, tiers: [] })),
++      ),
++    );
++
++    const tierMap = new Map(tiersByShow.map((entry) => [entry.showId, entry.tiers]));
+ 
+-  const selectedShow = event.shows?.find((s) => s.id === selectedShowId) || event.shows[0];
++    return {
++      event,
++      shows: shows.map((show) => {
++        const tiers = tierMap.get(show.id) || [];
++        const seatsLeft = tiers.reduce((sum, t) => sum + (t.availableQty || 0), 0);
++        const prices = tiers.map((t) => Number(t.price)).filter(Number.isFinite);
++        return {
++          ...show,
++          tierCount: tiers.length,
++          seatsLeft,
++          fromPrice: prices.length ? Math.min(...prices) : null,
++          soldOut: tiers.length > 0 && seatsLeft === 0,
++        };
++      }),
++    };
++  }, [eventId]);
+ 
+-  const handleProceedToTickets = () => {
+-    navigate(`/booking/${event.id}/tickets`, {
+-      state: { show: selectedShow }
+-    });
+-  };
++  const { data, loading, error, reload } = useApiData(fetchAll, [eventId]);
++  const event = data?.event;
++  // Memoised so the preselect effect below doesn't re-run on every render.
++  const shows = useMemo(() => data?.shows || [], [data]);
++
++  // Preselect the first slot that still has seats.
++  useEffect(() => {
++    if (!shows.length || selectedShowId !== null) return;
++    setSelectedShowId((shows.find((s) => !s.soldOut) || shows[0]).id);
++  }, [shows, selectedShowId]);
++
++  const selectedShow = shows.find((s) => s.id === selectedShowId);
+ 
+   return (
+     <div style={{ maxWidth: '1100px', margin: '2rem auto 4rem auto', padding: '0 1.5rem' }}>
+-      
+-      {/* Breadcrumb Navigation */}
+-      <Breadcrumb
+-        items={[
+-          { title: <a onClick={() => navigate('/')}>Home</a> },
+-          { title: <a onClick={() => navigate('/events')}>Events</a> },
+-          { title: <a onClick={() => navigate(`/events/${event.id}`)}>{event.title}</a> },
+-          { title: 'Select Show' }
+-        ]}
+-        style={{ marginBottom: '1.5rem' }}
+-      />
+-
+-      {/* Progress Steps Header */}
+-      <Card style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-        <Steps
+-          current={0}
+-          items={[
+-            { title: 'Select Show Slot', description: 'Choose date & time' },
+-            { title: 'Select Tickets', description: 'Pick tier & quantity' },
+-            { title: 'Booking Confirmed', description: 'Get QR E-Ticket' }
+-          ]}
+-        />
+-      </Card>
+-
+-      {/* Event Header Banner */}
+-      <Card style={{ borderRadius: '20px', marginBottom: '2rem', background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)', color: '#ffffff' }} bodyStyle={{ padding: '2rem' }}>
+-        <Row align="middle" gutter={[24, 24]}>
+-          <Col xs={24} md={4}>
+-            <img src={event.image} alt={event.title} style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '14px' }} />
+-          </Col>
+-          <Col xs={24} md={20}>
+-            <Tag color="purple" style={{ borderRadius: '10px', marginBottom: '8px' }}>{event.categoryName}</Tag>
+-            <Title level={3} style={{ color: '#ffffff', margin: 0, fontWeight: 800 }}>{event.title}</Title>
+-            <Space style={{ color: '#cbd5e1', marginTop: '6px', fontSize: '0.9rem' }}>
+-              <EnvironmentOutlined style={{ color: '#f472b6' }} /> {event.venue}, {event.cityName}
+-            </Space>
+-          </Col>
+-        </Row>
+-      </Card>
+-
+-      {/* Show Selection Section */}
+-      <Title level={4} style={{ fontWeight: 800, marginBottom: '1.5rem', color: '#0f172a' }}>
+-        Available Show Timings
+-      </Title>
+-
+-      <Row gutter={[20, 20]}>
+-        {event.shows.map((show) => {
+-          const isSelected = selectedShowId === show.id;
+-          return (
+-            <Col xs={24} sm={12} md={8} key={show.id}>
+-              <Card
+-                hoverable
+-                onClick={() => setSelectedShowId(show.id)}
++      <AsyncBoundary
++        loading={loading}
++        error={error}
++        onRetry={reload}
++        isEmpty={Boolean(data) && shows.length === 0}
++        loadingTip="Loading show slots…"
++        emptyDescription="No show slots have been scheduled for this event yet."
++        emptyAction={
++          <Button
++            type="primary"
++            onClick={() => navigate('/events')}
++            style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}
++          >
++            Browse other events
++          </Button>
++        }
++      >
++        {event && (
++          <>
++            <Breadcrumb
++              items={[
++                { title: <a onClick={() => navigate('/')}>Home</a> },
++                { title: <a onClick={() => navigate('/events')}>Events</a> },
++                { title: <a onClick={() => navigate(`/events/${event.id}`)}>{event.title}</a> },
++                { title: 'Select Show' },
++              ]}
++              style={{ marginBottom: '1.5rem' }}
++            />
++
++            <Card style={{ borderRadius: '20px', marginBottom: '2rem' }}>
++              <Steps
++                current={0}
++                items={[
++                  { title: 'Select Show', description: 'Choose date & time' },
++                  { title: 'Select Tickets', description: 'Pick tier & quantity' },
++                  { title: 'Confirm', description: 'Secure your seats' },
++                ]}
++              />
++            </Card>
++
++            <Card
++              style={{ borderRadius: '20px', marginBottom: '2rem', background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)' }}
++              styles={{ body: { padding: '2rem' } }}
++            >
++              <Row align="middle" gutter={[24, 24]}>
++                <Col xs={24} md={4}>
++                  <img
++                    src={posterOf(event)}
++                    alt={event.title}
++                    style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '14px' }}
++                  />
++                </Col>
++                <Col xs={24} md={20}>
++                  <Tag color="purple" style={{ borderRadius: '10px', marginBottom: '8px' }}>
++                    {categoryMeta(event.category).icon} {categoryMeta(event.category).label}
++                  </Tag>
++                  <Title level={3} style={{ color: '#ffffff', margin: 0, fontWeight: 800 }}>
++                    {event.title}
++                  </Title>
++                  <Space style={{ color: '#cbd5e1', marginTop: '6px', fontSize: '0.9rem' }}>
++                    <EnvironmentOutlined style={{ color: '#f472b6' }} />
++                    {[event.venueName, event.city].filter(Boolean).join(', ') || 'Venue TBA'}
++                  </Space>
++                </Col>
++              </Row>
++            </Card>
++
++            <Title level={4} style={{ fontWeight: 800, marginBottom: '1.5rem' }}>
++              Available Show Timings
++            </Title>
++
++            <Row gutter={[20, 20]}>
++              {shows.map((show) => {
++                const isSelected = selectedShowId === show.id;
++                return (
++                  <Col xs={24} sm={12} md={8} key={show.id}>
++                    <Card
++                      hoverable={!show.soldOut}
++                      onClick={() => !show.soldOut && setSelectedShowId(show.id)}
++                      style={{
++                        borderRadius: '20px',
++                        border: isSelected ? '2px solid #6366f1' : '1px solid #e2e8f0',
++                        boxShadow: isSelected ? '0 8px 24px rgba(99, 102, 241, 0.15)' : undefined,
++                        opacity: show.soldOut ? 0.6 : 1,
++                        cursor: show.soldOut ? 'not-allowed' : 'pointer',
++                      }}
++                    >
++                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
++                        <Tag
++                          color={show.soldOut ? 'red' : show.seatsLeft < 20 ? 'volcano' : 'green'}
++                          style={{ borderRadius: '10px', fontWeight: 600 }}
++                        >
++                          {show.soldOut ? 'Sold out' : show.seatsLeft < 20 ? 'Fast filling' : 'Available'}
++                        </Tag>
++                        {isSelected && <CheckCircleFilled style={{ color: '#6366f1', fontSize: '20px' }} />}
++                      </div>
++
++                      <div style={{ marginBottom: '1rem' }}>
++                        <div style={{ fontWeight: 800, fontSize: '1.15rem', marginBottom: '4px' }}>
++                          <CalendarOutlined style={{ color: '#6366f1', marginRight: '8px' }} />
++                          {formatDate(show.showDatetime)}
++                        </div>
++                        <div style={{ fontWeight: 700, fontSize: '1.05rem', color: '#475569' }}>
++                          <ClockCircleOutlined style={{ color: '#ec4899', marginRight: '8px' }} />
++                          {formatTime(show.showDatetime)}
++                        </div>
++                      </div>
++
++                      <div
++                        style={{
++                          display: 'flex',
++                          justifyContent: 'space-between',
++                          alignItems: 'center',
++                          paddingTop: '12px',
++                          borderTop: '1px solid #f1f5f9',
++                        }}
++                      >
++                        <div>
++                          <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Seats left</Text>
++                          <span style={{ fontWeight: 700 }}>
++                            {show.tierCount === 0 ? 'No tiers yet' : `${show.seatsLeft} seats`}
++                          </span>
++                        </div>
++                        <div style={{ textAlign: 'right' }}>
++                          <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Starts at</Text>
++                          <span style={{ fontWeight: 800, color: '#6366f1', fontSize: '1.05rem' }}>
++                            {show.fromPrice === null ? '—' : formatMoneyShort(show.fromPrice)}
++                          </span>
++                        </div>
++                      </div>
++                    </Card>
++                  </Col>
++                );
++              })}
++            </Row>
++
++            <div style={{ textAlign: 'right', marginTop: '3rem' }}>
++              <Button
++                type="primary"
++                size="large"
++                disabled={!selectedShow || selectedShow.soldOut || selectedShow.tierCount === 0}
++                onClick={() => navigate(`/booking/${event.id}/tickets`, { state: { showId: selectedShow.id } })}
+                 style={{
+-                  borderRadius: '20px',
+-                  border: isSelected ? '2px solid #6366f1' : '1px solid #e2e8f0',
+-                  background: isSelected ? '#f5f3ff' : '#ffffff',
+-                  boxShadow: isSelected ? '0 8px 24px rgba(99, 102, 241, 0.15)' : '0 4px 12px rgba(0,0,0,0.02)',
+-                  transition: 'all 0.2s ease'
++                  height: '52px',
++                  borderRadius: '16px',
++                  background:
++                    !selectedShow || selectedShow.soldOut || selectedShow.tierCount === 0
++                      ? undefined
++                      : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++                  fontWeight: 800,
++                  fontSize: '1rem',
++                  padding: '0 36px',
+                 }}
+               >
+-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+-                  <Tag color={show.status === 'Fast Filling' ? 'volcano' : 'green'} style={{ borderRadius: '10px', fontWeight: 600 }}>
+-                    {show.status}
+-                  </Tag>
+-                  {isSelected && <CheckCircleFilled style={{ color: '#6366f1', fontSize: '20px' }} />}
+-                </div>
+-
+-                <div style={{ marginBottom: '1rem' }}>
+-                  <div style={{ fontWeight: 800, fontSize: '1.2rem', color: '#0f172a', marginBottom: '4px' }}>
+-                    <CalendarOutlined style={{ color: '#6366f1', marginRight: '8px' }} />
+-                    {show.date}
+-                  </div>
+-                  <div style={{ fontWeight: 700, fontSize: '1.05rem', color: '#475569' }}>
+-                    <ClockCircleOutlined style={{ color: '#ec4899', marginRight: '8px' }} />
+-                    {show.time}
+-                  </div>
+-                </div>
+-
+-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
+-                  <div>
+-                    <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Seats Left</Text>
+-                    <span style={{ fontWeight: 700, color: '#1e293b' }}>{show.seatsLeft} Tickets</span>
+-                  </div>
+-                  <div>
+-                    <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Starts at</Text>
+-                    <span style={{ fontWeight: 800, color: '#6366f1', fontSize: '1.1rem' }}>₹{event.price}</span>
+-                  </div>
+-                </div>
+-              </Card>
+-            </Col>
+-          );
+-        })}
+-      </Row>
+-
+-      {/* Action CTA Bar */}
+-      <div style={{ textAlign: 'right', marginTop: '3rem' }}>
+-        <Button
+-          type="primary"
+-          size="large"
+-          onClick={handleProceedToTickets}
+-          style={{
+-            height: '52px',
+-            borderRadius: '16px',
+-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-            fontWeight: 800,
+-            fontSize: '1rem',
+-            padding: '0 36px',
+-            boxShadow: '0 8px 20px rgba(99, 102, 241, 0.35)'
+-          }}
+-        >
+-          Select Tickets for {selectedShow.time} <ArrowRightOutlined />
+-        </Button>
+-      </div>
+-
++                {selectedShow?.tierCount === 0
++                  ? 'No ticket tiers for this slot'
++                  : `Select tickets for ${selectedShow ? formatTime(selectedShow.showDatetime) : ''}`}{' '}
++                <ArrowRightOutlined />
++              </Button>
++            </div>
++          </>
++        )}
++      </AsyncBoundary>
+     </div>
+   );
+ };
+diff --git a/frontend/src/pages/TicketSelectionPage.jsx b/frontend/src/pages/TicketSelectionPage.jsx
+index 801a64a..0f6a392 100644
+--- a/frontend/src/pages/TicketSelectionPage.jsx
++++ b/frontend/src/pages/TicketSelectionPage.jsx
+@@ -1,284 +1,347 @@
+-import React, { useState } from 'react';
++import React, { useState, useCallback, useMemo } from 'react';
+ import { useParams, useNavigate, useLocation } from 'react-router-dom';
++import { Row, Col, Card, Button, Tag, Typography, Space, Steps, InputNumber, Divider, Breadcrumb, Alert } from 'antd';
+ import {
+-  Row,
+-  Col,
+-  Card,
+-  Button,
+-  Tag,
+-  Typography,
+-  Space,
+-  Steps,
+-  InputNumber,
+-  Divider,
+-  Breadcrumb,
+-  message
+-} from 'antd';
+-import {
+-  CheckOutlined,
+   CalendarOutlined,
+   ClockCircleOutlined,
+   EnvironmentOutlined,
+   SafetyCertificateOutlined,
+   ArrowRightOutlined,
+-  CreditCardOutlined,
+-  CheckCircleFilled
+ } from '@ant-design/icons';
+-import { EVENTS, TICKET_TIERS } from '../data/mockData';
++import { getEvent } from '../api/events';
++import { getShow, listTicketTypes } from '../api/shows';
++import { createBooking } from '../api/bookings';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary, { InlineError } from '../components/AsyncBoundary';
++import { useAuth } from '../context/AuthContext';
++import { formatDate, formatTime, formatMoney } from '../utils/format';
+ 
+ const { Title, Text } = Typography;
+ 
++/** Matches the backend's per-tier practical ceiling; the server is still the authority. */
++const MAX_PER_TIER = 10;
++
++/**
++ * Step 2 of booking: choose tiers and quantities, then place the hold
++ * (integration plan §3.3).
++ *
++ * Two deliberate changes from the mock version:
++ *
++ *  - **No convenience fee, no GST.** The backend computes `totalAmount` as
++ *    `Σ (unitPrice × quantity)` and nothing else. Adding client-side fees would
++ *    show the user a number the server never agrees with. Totals are the
++ *    backend's job (§2.5); the figure here is only a preview of the same sum.
++ *  - **Submitting creates a hold, not a booking.** We go to the confirmation
++ *    screen, which runs the countdown and calls `/confirm`. Jumping straight to a
++ *    success page would produce bookings that silently expire (§3.3, YG-6).
++ */
+ const TicketSelectionPage = () => {
+   const { eventId } = useParams();
+   const navigate = useNavigate();
+   const location = useLocation();
++  const { isAuthenticated } = useAuth();
++
++  const showId = location.state?.showId;
++
++  const [quantities, setQuantities] = useState({});
++  const [submitting, setSubmitting] = useState(false);
++  const [submitError, setSubmitError] = useState(null);
+ 
+-  const event = EVENTS.find((e) => e.id === eventId) || EVENTS[0];
+-  const selectedShow = location.state?.show || event.shows[0];
++  const fetchAll = useCallback(async () => {
++    const [event, show, tiers] = await Promise.all([
++      getEvent(eventId),
++      getShow(showId),
++      listTicketTypes(showId),
++    ]);
++    return { event, show, tiers };
++  }, [eventId, showId]);
+ 
+-  // Quantity map for each tier
+-  const [quantities, setQuantities] = useState({
+-    'tier-silver': 1,
+-    'tier-gold': 0,
+-    'tier-platinum': 0
++  const { data, loading, error, reload } = useApiData(fetchAll, [eventId, showId], {
++    enabled: Boolean(showId),
+   });
+ 
+-  const [isProcessing, setIsProcessing] = useState(false);
++  const event = data?.event;
++  const show = data?.show;
++  const tiers = useMemo(() => data?.tiers || [], [data]);
+ 
+-  const handleQuantityChange = (tierId, val) => {
+-    setQuantities((prev) => ({
+-      ...prev,
+-      [tierId]: val || 0
+-    }));
++  const setQuantity = (tierId, value) => {
++    setQuantities((prev) => ({ ...prev, [tierId]: value || 0 }));
+   };
+ 
+-  // Calculations
+-  const subtotal = TICKET_TIERS.reduce(
+-    (acc, tier) => acc + tier.price * (quantities[tier.id] || 0),
+-    0
++  const selectedItems = useMemo(
++    () =>
++      tiers
++        .filter((tier) => (quantities[tier.id] || 0) > 0)
++        .map((tier) => ({
++          ticketTypeId: tier.id,
++          quantity: quantities[tier.id],
++          name: tier.name,
++          unitPrice: Number(tier.price),
++        })),
++    [tiers, quantities],
+   );
+ 
+-  const totalTickets = Object.values(quantities).reduce((acc, q) => acc + q, 0);
++  const totalTickets = selectedItems.reduce((sum, item) => sum + item.quantity, 0);
++  /** Preview of the same sum the server will compute — never sent anywhere. */
++  const previewTotal = selectedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+ 
+-  const convenienceFee = subtotal > 0 ? 50 : 0;
+-  const gst = Math.round(subtotal * 0.18);
+-  const grandTotal = subtotal + convenienceFee + gst;
++  const handleHoldSeats = async () => {
++    if (totalTickets === 0) return;
+ 
+-  const handlePayAndConfirm = () => {
+-    if (totalTickets === 0) {
+-      message.error('Please select at least 1 ticket to proceed.');
++    if (!isAuthenticated) {
++      // Booking needs a JWT. Send them to login and come straight back here with
++      // their selection intact.
++      navigate('/login', {
++        state: { from: { pathname: `/booking/${eventId}/tickets` }, showId },
++      });
+       return;
+     }
+ 
+-    setIsProcessing(true);
+-    setTimeout(() => {
+-      setIsProcessing(false);
+-      const bookingData = {
+-        bookingId: `EVT-BK-2026-${Math.floor(10000 + Math.random() * 90000)}`,
+-        eventTitle: event.title,
+-        venue: event.venue,
+-        cityName: event.cityName,
+-        showDate: selectedShow.date,
+-        showTime: selectedShow.time,
+-        totalTickets: totalTickets,
+-        grandTotal: grandTotal,
+-        selectedTiers: TICKET_TIERS.filter((t) => quantities[t.id] > 0).map((t) => ({
+-          name: t.name,
+-          count: quantities[t.id],
+-          price: t.price
+-        })),
+-        image: event.image
+-      };
+-
+-      navigate('/booking/success', { state: { booking: bookingData } });
+-    }, 1200);
++    setSubmitting(true);
++    setSubmitError(null);
++    try {
++      const booking = await createBooking(
++        showId,
++        selectedItems.map(({ ticketTypeId, quantity }) => ({ ticketTypeId, quantity })),
++      );
++      navigate(`/booking/${booking.id}/confirm`, { state: { booking } });
++    } catch (err) {
++      // Seat allocation is atomic server-side, so a race here comes back as a 400
++      // with a real message ("Not enough seats available") — show it and refresh
++      // the counts so the user sees the current availability.
++      setSubmitError(err);
++      reload();
++    } finally {
++      setSubmitting(false);
++    }
+   };
+ 
++  // Landing here without a show (deep link, refresh) — send them back to pick one.
++  if (!showId) {
++    return (
++      <div style={{ maxWidth: '900px', margin: '3rem auto', padding: '0 1.5rem' }}>
++        <Alert
++          type="info"
++          showIcon
++          message="Pick a show first"
++          description="Ticket tiers belong to a specific show slot."
++          action={
++            <Button type="primary" onClick={() => navigate(`/booking/${eventId}/shows`)}>
++              Choose a show
++            </Button>
++          }
++          style={{ borderRadius: 12 }}
++        />
++      </div>
++    );
++  }
++
+   return (
+     <div style={{ maxWidth: '1180px', margin: '2rem auto 4rem auto', padding: '0 1.5rem' }}>
+-      
+-      {/* Breadcrumb Navigation */}
+-      <Breadcrumb
+-        items={[
+-          { title: <a onClick={() => navigate('/')}>Home</a> },
+-          { title: <a onClick={() => navigate('/events')}>Events</a> },
+-          { title: <a onClick={() => navigate(`/booking/${event.id}/shows`)}>Select Show</a> },
+-          { title: 'Select Tickets' }
+-        ]}
+-        style={{ marginBottom: '1.5rem' }}
+-      />
+-
+-      {/* Progress Steps Header */}
+-      <Card style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.03)' }}>
+-        <Steps
+-          current={1}
+-          items={[
+-            { title: 'Select Show Slot', description: 'Chosen: ' + selectedShow.time },
+-            { title: 'Select Tickets', description: 'Pick tier & quantity' },
+-            { title: 'Booking Confirmed', description: 'Get QR E-Ticket' }
+-          ]}
+-        />
+-      </Card>
+-
+-      <Row gutter={[32, 32]}>
+-        
+-        {/* Ticket Tier Cards (Left 15 Cols) */}
+-        <Col xs={24} lg={15}>
+-          <Title level={4} style={{ fontWeight: 800, marginBottom: '1.5rem', color: '#0f172a' }}>
+-            Choose Ticket Tiers
+-          </Title>
+-
+-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+-            {TICKET_TIERS.map((tier) => {
+-              const qty = quantities[tier.id] || 0;
+-              return (
++      <AsyncBoundary
++        loading={loading}
++        error={error}
++        onRetry={reload}
++        isEmpty={Boolean(data) && tiers.length === 0}
++        loadingTip="Loading ticket tiers…"
++        emptyDescription="No ticket tiers have been configured for this show yet."
++        emptyAction={
++          <Button
++            type="primary"
++            onClick={() => navigate(`/booking/${eventId}/shows`)}
++            style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}
++          >
++            Pick another show
++          </Button>
++        }
++      >
++        {event && show && (
++          <>
++            <Breadcrumb
++              items={[
++                { title: <a onClick={() => navigate('/')}>Home</a> },
++                { title: <a onClick={() => navigate('/events')}>Events</a> },
++                { title: <a onClick={() => navigate(`/booking/${eventId}/shows`)}>Select Show</a> },
++                { title: 'Select Tickets' },
++              ]}
++              style={{ marginBottom: '1.5rem' }}
++            />
++
++            <Card style={{ borderRadius: '20px', marginBottom: '2rem' }}>
++              <Steps
++                current={1}
++                items={[
++                  { title: 'Select Show', description: formatTime(show.showDatetime) },
++                  { title: 'Select Tickets', description: 'Pick tier & quantity' },
++                  { title: 'Confirm', description: 'Secure your seats' },
++                ]}
++              />
++            </Card>
++
++            <InlineError error={submitError} onClose={() => setSubmitError(null)} />
++
++            <Row gutter={[32, 32]}>
++
++              <Col xs={24} lg={15}>
++                <Title level={4} style={{ fontWeight: 800, marginBottom: '1.5rem' }}>
++                  Choose Ticket Tiers
++                </Title>
++
++                <Space direction="vertical" size="large" style={{ width: '100%' }}>
++                  {tiers.map((tier) => {
++                    const qty = quantities[tier.id] || 0;
++                    const available = tier.availableQty ?? 0;
++                    const soldOut = available === 0;
++                    const sold = (tier.totalQty ?? 0) - available;
++
++                    return (
++                      <Card
++                        key={tier.id}
++                        style={{
++                          borderRadius: '20px',
++                          border: qty > 0 ? '2px solid #6366f1' : '1px solid #e2e8f0',
++                          opacity: soldOut ? 0.65 : 1,
++                        }}
++                        styles={{ body: { padding: '1.5rem' } }}
++                      >
++                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', gap: 16 }}>
++                          <div>
++                            <Space style={{ marginBottom: '4px' }} wrap>
++                              <h3 style={{ margin: 0, fontWeight: 800, fontSize: '1.2rem' }}>{tier.name}</h3>
++                              {soldOut ? (
++                                <Tag color="red" style={{ borderRadius: 10 }}>Sold out</Tag>
++                              ) : available < 10 ? (
++                                <Tag color="volcano" style={{ borderRadius: 10 }}>Only {available} left</Tag>
++                              ) : null}
++                            </Space>
++                            <Text type="secondary" style={{ fontSize: '0.85rem', display: 'block' }}>
++                              {available} of {tier.totalQty} seats available
++                              {sold > 0 ? ` · ${sold} booked` : ''}
++                            </Text>
++                          </div>
++
++                          <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
++                            <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>{formatMoney(tier.price)}</span>
++                            <Text type="secondary" style={{ display: 'block', fontSize: '0.78rem' }}>
++                              per ticket
++                            </Text>
++                          </div>
++                        </div>
++
++                        <div
++                          style={{
++                            display: 'flex',
++                            justifyContent: 'space-between',
++                            alignItems: 'center',
++                            paddingTop: '1rem',
++                            marginTop: '1rem',
++                            borderTop: '1px solid #f1f5f9',
++                          }}
++                        >
++                          <Text style={{ fontWeight: 600 }}>
++                            {soldOut ? 'No seats left in this tier' : 'Select quantity'}
++                          </Text>
++                          <InputNumber
++                            min={0}
++                            // Capped at live availability so the obvious mistake is
++                            // caught here; the server still rejects overselling atomically.
++                            max={Math.min(available, MAX_PER_TIER)}
++                            value={qty}
++                            disabled={soldOut}
++                            onChange={(val) => setQuantity(tier.id, val)}
++                            size="large"
++                            style={{ width: '100px' }}
++                          />
++                        </div>
++                      </Card>
++                    );
++                  })}
++                </Space>
++              </Col>
++
++              {/* Summary rail */}
++              <Col xs={24} lg={9}>
+                 <Card
+-                  key={tier.id}
+-                  style={{
+-                    borderRadius: '20px',
+-                    border: qty > 0 ? '2px solid #6366f1' : '1px solid #e2e8f0',
+-                    background: qty > 0 ? '#f5f3ff' : '#ffffff',
+-                    boxShadow: qty > 0 ? '0 8px 24px rgba(99, 102, 241, 0.12)' : '0 4px 12px rgba(0,0,0,0.02)',
+-                    transition: 'all 0.2s ease'
+-                  }}
+-                  bodyStyle={{ padding: '1.5rem' }}
++                  style={{ borderRadius: '24px', position: 'sticky', top: '100px', boxShadow: '0 10px 30px rgba(0,0,0,0.06)' }}
++                  styles={{ body: { padding: '1.75rem' } }}
+                 >
+-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '1rem' }}>
+-                    <div>
+-                      <Space style={{ marginBottom: '4px' }}>
+-                        <h3 style={{ margin: 0, fontWeight: 800, fontSize: '1.2rem', color: '#0f172a' }}>
+-                          {tier.name}
+-                        </h3>
+-                        <Tag color={tier.tagColor} style={{ borderRadius: '10px' }}>
+-                          {tier.tag}
+-                        </Tag>
+-                      </Space>
+-                      <Text type="secondary" style={{ fontSize: '0.85rem', display: 'block' }}>
+-                        {tier.availableSeats} seats remaining
+-                      </Text>
+-                    </div>
+-
+-                    <div style={{ textAlign: 'right' }}>
+-                      <span style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+-                        ₹{tier.price}
+-                      </span>
+-                      <Text delete style={{ fontSize: '0.85rem', color: '#94a3b8', marginLeft: '6px' }}>
+-                        ₹{tier.originalPrice}
+-                      </Text>
+-                    </div>
++                  <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem' }}>
++                    Booking Summary
++                  </Title>
++
++                  <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '14px', marginBottom: '1.5rem' }}>
++                    <div style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: '4px' }}>{event.title}</div>
++                    <Space direction="vertical" size={2} style={{ fontSize: '0.85rem', color: '#64748b' }}>
++                      <div><CalendarOutlined style={{ marginRight: 6 }} /> {formatDate(show.showDatetime)}</div>
++                      <div><ClockCircleOutlined style={{ marginRight: 6 }} /> {formatTime(show.showDatetime)}</div>
++                      <div><EnvironmentOutlined style={{ marginRight: 6 }} /> {[event.venueName, event.city].filter(Boolean).join(', ') || 'Venue TBA'}</div>
++                    </Space>
++                  </div>
++
++                  <Divider style={{ margin: '1rem 0' }} />
++
++                  {selectedItems.length === 0 ? (
++                    <Text type="secondary">Select at least one ticket to continue.</Text>
++                  ) : (
++                    <Space direction="vertical" style={{ width: '100%' }} size="small">
++                      {selectedItems.map((item) => (
++                        <div key={item.ticketTypeId} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
++                          <span style={{ color: '#475569' }}>
++                            {item.quantity} × {item.name}
++                          </span>
++                          <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
++                            {formatMoney(item.unitPrice * item.quantity)}
++                          </span>
++                        </div>
++                      ))}
++                    </Space>
++                  )}
++
++                  <Divider style={{ margin: '1rem 0' }} />
++
++                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
++                    <Text style={{ fontWeight: 800, fontSize: '1.1rem' }}>
++                      Total ({totalTickets} {totalTickets === 1 ? 'ticket' : 'tickets'})
++                    </Text>
++                    <span style={{ fontWeight: 800, fontSize: '1.5rem', color: '#6366f1' }}>
++                      {formatMoney(previewTotal)}
++                    </span>
+                   </div>
++                  <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block', marginBottom: '1.25rem' }}>
++                    The server confirms the final amount when it holds your seats.
++                  </Text>
+ 
+-                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1.25rem 0', lineHeight: '2' }}>
+-                    {tier.features.map((feat, idx) => (
+-                      <li key={idx} style={{ color: '#475569', fontSize: '0.9rem' }}>
+-                        <CheckOutlined style={{ color: '#52c41a', marginRight: '8px' }} />
+-                        {feat}
+-                      </li>
+-                    ))}
+-                  </ul>
+-
+-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+-                    <Text style={{ fontWeight: 600, color: '#334155' }}>Select Quantity:</Text>
+-                    <InputNumber
+-                      min={0}
+-                      max={10}
+-                      value={qty}
+-                      onChange={(val) => handleQuantityChange(tier.id, val)}
+-                      size="large"
+-                      style={{ borderRadius: '10px', width: '100px' }}
+-                    />
++                  <Button
++                    type="primary"
++                    size="large"
++                    block
++                    loading={submitting}
++                    disabled={totalTickets === 0}
++                    onClick={handleHoldSeats}
++                    style={{
++                      height: '52px',
++                      borderRadius: '16px',
++                      background: totalTickets === 0 ? undefined : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++                      fontWeight: 800,
++                      fontSize: '1.02rem',
++                      marginBottom: '1rem',
++                    }}
++                  >
++                    Hold my seats <ArrowRightOutlined />
++                  </Button>
++
++                  <div style={{ textAlign: 'center' }}>
++                    <Space style={{ color: '#64748b', fontSize: '0.8rem' }}>
++                      <SafetyCertificateOutlined style={{ color: '#52c41a' }} /> Held for 10 minutes — confirm on the next screen
++                    </Space>
+                   </div>
+                 </Card>
+-              );
+-            })}
+-          </Space>
+-        </Col>
+-
+-        {/* Booking Summary Sidebar (Right 9 Cols) */}
+-        <Col xs={24} lg={9}>
+-          <Card
+-            style={{
+-              borderRadius: '24px',
+-              position: 'sticky',
+-              top: '100px',
+-              boxShadow: '0 10px 30px rgba(0,0,0,0.06)',
+-              border: '1px solid #e2e8f0'
+-            }}
+-            bodyStyle={{ padding: '1.75rem' }}
+-          >
+-            <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-              Booking Summary
+-            </Title>
+-
+-            <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '14px', marginBottom: '1.5rem', border: '1px solid #e2e8f0' }}>
+-              <div style={{ fontWeight: 800, color: '#0f172a', fontSize: '1.05rem', marginBottom: '4px' }}>
+-                {event.title}
+-              </div>
+-              <Space direction="vertical" size={2} style={{ fontSize: '0.85rem', color: '#64748b' }}>
+-                <div><CalendarOutlined style={{ marginRight: '6px' }} /> {selectedShow.date}</div>
+-                <div><ClockCircleOutlined style={{ marginRight: '6px' }} /> {selectedShow.time}</div>
+-                <div><EnvironmentOutlined style={{ marginRight: '6px' }} /> {selectedShow.venue || event.venue}</div>
+-              </Space>
+-            </div>
+-
+-            <Divider style={{ margin: '1rem 0' }} />
+-
+-            {/* Price Breakdown */}
+-            <Space direction="vertical" style={{ width: '100%', marginBottom: '1.5rem' }} size="small">
+-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
+-                <span>Tickets Subtotal ({totalTickets} items)</span>
+-                <span style={{ fontWeight: 600, color: '#0f172a' }}>₹{subtotal}</span>
+-              </div>
+-
+-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
+-                <span>Convenience Fee</span>
+-                <span style={{ fontWeight: 600, color: '#0f172a' }}>₹{convenienceFee}</span>
+-              </div>
+-
+-              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
+-                <span>GST (18%)</span>
+-                <span style={{ fontWeight: 600, color: '#0f172a' }}>₹{gst}</span>
+-              </div>
+-            </Space>
+-
+-            <Divider style={{ margin: '1rem 0' }} />
+-
+-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+-              <Text style={{ fontWeight: 800, fontSize: '1.1rem', color: '#0f172a' }}>Total Amount:</Text>
+-              <span style={{ fontWeight: 800, fontSize: '1.6rem', color: '#6366f1' }}>
+-                ₹{grandTotal}
+-              </span>
+-            </div>
+-
+-            <Button
+-              type="primary"
+-              size="large"
+-              block
+-              loading={isProcessing}
+-              disabled={totalTickets === 0}
+-              onClick={handlePayAndConfirm}
+-              style={{
+-                height: '52px',
+-                borderRadius: '16px',
+-                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-                fontWeight: 800,
+-                fontSize: '1.05rem',
+-                boxShadow: '0 8px 20px rgba(99, 102, 241, 0.35)',
+-                marginBottom: '1rem'
+-              }}
+-            >
+-              Confirm & Pay ₹{grandTotal} <CreditCardOutlined />
+-            </Button>
+-
+-            <div style={{ textAlign: 'center' }}>
+-              <Space style={{ color: '#64748b', fontSize: '0.8rem' }}>
+-                <SafetyCertificateOutlined style={{ color: '#52c41a' }} /> 100% Encrypted & Safe Payment
+-              </Space>
+-            </div>
+-          </Card>
+-        </Col>
++              </Col>
+ 
+-      </Row>
++            </Row>
++          </>
++        )}
++      </AsyncBoundary>
+     </div>
+   );
+ };
+-- 
+2.55.0.windows.3
+

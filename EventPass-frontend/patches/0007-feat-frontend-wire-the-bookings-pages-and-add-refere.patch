@@ -1,0 +1,1194 @@
+From 2a98d8eaefa621005759fdfa345eaedca423bc8c Mon Sep 17 00:00:00 2001
+From: adesh chaudhari <superbhel7@gmail.com>
+Date: Fri, 7 Aug 2026 08:28:52 +0530
+Subject: [PATCH 7/9] feat(frontend): wire the bookings pages and add reference
+ lookup
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+YG-8, plus the one contract endpoint nothing was calling.
+
+Statuses are the backend's exact enum names. The mock data's 'Completed' never
+existed, and its title-case values would never have matched. bookingReference
+is what the user sees; the numeric id is what we call the API with (plan 2.5).
+
+A PENDING booking whose hold is still live shows its remaining time and a
+Confirm now shortcut, so a half-finished booking is recoverable from the list
+rather than quietly expiring.
+
+BookingLookupPage covers GET /api/bookings/reference/{ref}, which was in the
+contract but had no UI. The endpoint is user-scoped server-side, so a stranger's
+code 404s rather than leaking anything.
+
+Deviation worth flagging: YG-8 says to wait for SZ-1 before building these
+cards. SZ-1 has not landed, and waiting would leave nothing to demo, so these
+use the enrich.js lookup instead. When SZ-1 ships, delete enrich.js and its
+call sites — the pages read the same field names either way.
+---
+ frontend/src/pages/BookingDetailsPage.jsx | 441 +++++++++++++---------
+ frontend/src/pages/BookingLookupPage.jsx  | 198 ++++++++++
+ frontend/src/pages/MyBookingsPage.jsx     | 432 ++++++++++++---------
+ 3 files changed, 709 insertions(+), 362 deletions(-)
+ create mode 100644 frontend/src/pages/BookingLookupPage.jsx
+
+diff --git a/frontend/src/pages/BookingDetailsPage.jsx b/frontend/src/pages/BookingDetailsPage.jsx
+index a97bb33..78f1d7a 100644
+--- a/frontend/src/pages/BookingDetailsPage.jsx
++++ b/frontend/src/pages/BookingDetailsPage.jsx
+@@ -1,216 +1,283 @@
+-import React from 'react';
+-import { useParams, useNavigate, useLocation } from 'react-router-dom';
++import React, { useCallback } from 'react';
++import { useParams, useNavigate } from 'react-router-dom';
++import { Row, Col, Card, Tag, Button, QRCode, Typography, Space, Divider, Breadcrumb } from 'antd';
+ import {
+-  Row,
+-  Col,
+-  Card,
+-  Tag,
+-  Button,
+-  QRCode,
+-  Typography,
+-  Space,
+-  Divider,
+-  Breadcrumb,
+-  message
+-} from 'antd';
+-import {
+-  DownloadOutlined,
+   ArrowLeftOutlined,
+   CalendarOutlined,
+   ClockCircleOutlined,
+   EnvironmentOutlined,
+   CreditCardOutlined,
+   SafetyCertificateOutlined,
+-  CheckCircleFilled
++  PrinterOutlined,
+ } from '@ant-design/icons';
+-import { MOCK_BOOKINGS } from '../data/mockData';
++import { getBooking } from '../api/bookings';
++import { enrichBooking } from '../api/enrich';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary from '../components/AsyncBoundary';
++import { BOOKING_STATUS_COLOR, PAYMENT_STATUS_COLOR } from '../constants/categories';
++import { formatDate, formatTime, formatDateTime, formatMoney, posterOf } from '../utils/format';
+ 
+-const { Title, Text, Paragraph } = Typography;
++const { Title, Text } = Typography;
+ 
++/**
++ * `GET /api/bookings/{id}` — scoped to the signed-in user by the backend
++ * (integration plan §3.3). The URL carries the numeric id; the reference code is
++ * what we show and what the QR encodes.
++ *
++ * The mock version had a `paymentMethod` field. Payment *mode* lives on an
++ * invoice's payments, not on the booking (§4), so this shows the booking's own
++ * `paymentStatus` instead. Payment mode arrives with the billing screens (YG-10)
++ * once PR #2 and the payment package are merged.
++ */
+ const BookingDetailsPage = () => {
+   const { bookingId } = useParams();
+   const navigate = useNavigate();
+-  const location = useLocation();
+ 
+-  const booking =
+-    location.state?.booking ||
+-    MOCK_BOOKINGS.find((b) => b.bookingId === bookingId) ||
+-    MOCK_BOOKINGS[0];
++  const fetchBooking = useCallback(async () => {
++    const booking = await getBooking(bookingId);
++    return enrichBooking(booking);
++  }, [bookingId]);
++
++  const { data: booking, loading, error, reload } = useApiData(fetchBooking, [bookingId]);
+ 
+-  const handleDownloadTicket = () => {
+-    message.success(`E-Ticket for ${booking.bookingId} downloaded successfully as PDF!`);
+-  };
++  const items = booking?.items || [];
++  const totalTickets = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
+ 
+   return (
+     <div style={{ maxWidth: '960px', margin: '2rem auto 4rem auto', padding: '0 1.5rem' }}>
+-      
+-      {/* Breadcrumb Header */}
+-      <Breadcrumb
+-        items={[
+-          { title: <a onClick={() => navigate('/')}>Home</a> },
+-          { title: <a onClick={() => navigate('/my-bookings')}>My Bookings</a> },
+-          { title: booking.bookingId }
+-        ]}
+-        style={{ marginBottom: '1.5rem' }}
+-      />
+-
+-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+-        <Button
+-          type="text"
+-          icon={<ArrowLeftOutlined />}
+-          onClick={() => navigate('/my-bookings')}
+-          style={{ fontWeight: 600, color: '#64748b' }}
+-        >
+-          Back to My Bookings
+-        </Button>
+-
+-        <Button
+-          type="primary"
+-          icon={<DownloadOutlined />}
+-          onClick={handleDownloadTicket}
+-          style={{
+-            borderRadius: '12px',
+-            background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-            fontWeight: 600
+-          }}
+-        >
+-          Download PDF Ticket
+-        </Button>
+-      </div>
+-
+-      {/* Main Digital Pass Ticket Card */}
+-      <Card
+-        style={{
+-          borderRadius: '24px',
+-          overflow: 'hidden',
+-          boxShadow: '0 10px 30px rgba(0,0,0,0.06)',
+-          border: '1px solid #e2e8f0',
+-          background: '#ffffff'
+-        }}
+-        bodyStyle={{ padding: 0 }}
++      <AsyncBoundary
++        loading={loading}
++        error={error}
++        onRetry={reload}
++        loadingTip="Loading your ticket…"
++        errorTitle="Could not load this booking"
+       >
+-        {/* Banner Image */}
+-        <div style={{ position: 'relative', height: '220px', overflow: 'hidden' }}>
+-          <img
+-            src={booking.image}
+-            alt={booking.eventTitle}
+-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+-          />
+-          <div
+-            style={{
+-              position: 'absolute',
+-              inset: 0,
+-              background: 'linear-gradient(180deg, rgba(15,23,42,0.2) 0%, rgba(15,23,42,0.8) 100%)',
+-              display: 'flex',
+-              alignItems: 'flex-end',
+-              padding: '1.5rem'
+-            }}
+-          >
+-            <div>
+-              <Tag color={booking.statusColor} style={{ borderRadius: '10px', fontWeight: 700, padding: '4px 12px' }}>
+-                {booking.status}
+-              </Tag>
+-              <h2 style={{ color: '#ffffff', margin: '6px 0 0 0', fontWeight: 800, fontSize: '1.8rem' }}>
+-                {booking.eventTitle}
+-              </h2>
++        {booking && (
++          <>
++            <Breadcrumb
++              items={[
++                { title: <a onClick={() => navigate('/')}>Home</a> },
++                { title: <a onClick={() => navigate('/my-bookings')}>My Bookings</a> },
++                { title: booking.bookingReference },
++              ]}
++              style={{ marginBottom: '1.5rem' }}
++            />
++
++            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: '1.5rem' }}>
++              <Button
++                type="text"
++                icon={<ArrowLeftOutlined />}
++                onClick={() => navigate('/my-bookings')}
++                style={{ fontWeight: 600, color: '#64748b' }}
++              >
++                Back to My Bookings
++              </Button>
++
++              <Button
++                type="primary"
++                icon={<PrinterOutlined />}
++                onClick={() => window.print()}
++                style={{
++                  borderRadius: '12px',
++                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++                  fontWeight: 600,
++                }}
++              >
++                Print ticket
++              </Button>
+             </div>
+-          </div>
+-        </div>
+-
+-        {/* Ticket Details & QR Code Split */}
+-        <div style={{ padding: '2rem' }}>
+-          <Row gutter={[32, 32]}>
+-            
+-            {/* Left Column: Event & Ticket Details */}
+-            <Col xs={24} md={15}>
+-              <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                Event & Show Information
+-              </Title>
+-
+-              <Space direction="vertical" size="middle" style={{ width: '100%', color: '#334155', fontSize: '0.95rem' }}>
+-                <div>
+-                  <CalendarOutlined style={{ color: '#6366f1', marginRight: '8px' }} />
+-                  <strong>Date & Time:</strong> {booking.date} • {booking.time}
+-                </div>
+-                <div>
+-                  <EnvironmentOutlined style={{ color: '#ec4899', marginRight: '8px' }} />
+-                  <strong>Venue Location:</strong> {booking.venue}, {booking.cityName}
+-                </div>
+-                <div>
+-                  <CreditCardOutlined style={{ color: '#52c41a', marginRight: '8px' }} />
+-                  <strong>Payment Mode:</strong> {booking.paymentMethod}
+-                </div>
+-                <div>
+-                  <ClockCircleOutlined style={{ color: '#fa8c16', marginRight: '8px' }} />
+-                  <strong>Booking Date:</strong> {booking.bookingDate}
+-                </div>
+-              </Space>
+-
+-              <Divider style={{ margin: '1.5rem 0' }} />
+-
+-              <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem', color: '#0f172a' }}>
+-                Ticket Tier Breakdown
+-              </Title>
+-
+-              <Space direction="vertical" style={{ width: '100%' }}>
+-                {booking.selectedTiers.map((tier, idx) => (
+-                  <div
+-                    key={idx}
+-                    style={{
+-                      display: 'flex',
+-                      justify: 'space-between',
+-                      alignItems: 'center',
+-                      background: '#f8fafc',
+-                      padding: '12px 16px',
+-                      borderRadius: '14px',
+-                      border: '1px solid #e2e8f0'
+-                    }}
+-                  >
+-                    <div>
+-                      <div style={{ fontWeight: 700, color: '#1e293b' }}>{tier.name}</div>
+-                      <Text type="secondary" style={{ fontSize: '0.8rem' }}>Quantity: {tier.count}</Text>
+-                    </div>
+-                    <span style={{ fontWeight: 800, color: '#6366f1', fontSize: '1.1rem' }}>
+-                      ₹{tier.price * tier.count}
+-                    </span>
+-                  </div>
+-                ))}
+-              </Space>
+-
+-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '2px dashed #e2e8f0' }}>
+-                <Text style={{ fontWeight: 800, fontSize: '1.1rem', color: '#0f172a' }}>Total Amount Paid:</Text>
+-                <span style={{ fontWeight: 800, fontSize: '1.5rem', color: '#0f172a' }}>
+-                  ₹{booking.grandTotal}
+-                </span>
+-              </div>
+-            </Col>
+ 
+-            {/* Right Column: Digital QR Code Pass */}
+-            <Col xs={24} md={9} style={{ textAlign: 'center', borderLeft: '1px dashed #e2e8f0', paddingLeft: '1.5rem' }}>
+-              <div style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '24px', border: '1px solid #e2e8f0', display: 'inline-block' }}>
+-                <div style={{ fontWeight: 800, color: '#6366f1', marginBottom: '8px', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+-                  Entry Pass QR Code
++            <Card style={{ borderRadius: '24px', overflow: 'hidden' }} styles={{ body: { padding: 0 } }}>
++
++              <div style={{ position: 'relative', height: '220px', overflow: 'hidden' }}>
++                <img
++                  src={posterOf(booking)}
++                  alt={booking.eventTitle || booking.bookingReference}
++                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
++                />
++                <div
++                  style={{
++                    position: 'absolute',
++                    inset: 0,
++                    background: 'linear-gradient(180deg, rgba(15,23,42,0.2) 0%, rgba(15,23,42,0.85) 100%)',
++                    display: 'flex',
++                    alignItems: 'flex-end',
++                    padding: '1.5rem',
++                  }}
++                >
++                  <div>
++                    <Space>
++                      <Tag
++                        color={BOOKING_STATUS_COLOR[booking.status] || 'default'}
++                        style={{ borderRadius: '10px', fontWeight: 700, padding: '4px 12px' }}
++                      >
++                        {booking.status}
++                      </Tag>
++                      <Tag
++                        color={PAYMENT_STATUS_COLOR[booking.paymentStatus] || 'default'}
++                        style={{ borderRadius: '10px', fontWeight: 700, padding: '4px 12px' }}
++                      >
++                        {booking.paymentStatus}
++                      </Tag>
++                    </Space>
++                    <h2 style={{ color: '#ffffff', margin: '6px 0 0 0', fontWeight: 800, fontSize: '1.8rem' }}>
++                      {booking.eventTitle || `Show #${booking.showId}`}
++                    </h2>
++                  </div>
+                 </div>
+-                <QRCode value={booking.bookingId} size={180} />
+-                <Text style={{ display: 'block', fontWeight: 800, marginTop: '12px', color: '#0f172a', fontSize: '1.05rem' }}>
+-                  {booking.bookingId}
+-                </Text>
+-                <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block', marginTop: '4px' }}>
+-                  Show this QR code at venue entry gate
+-                </Text>
+               </div>
+ 
+-              <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
+-                <Space style={{ color: '#52c41a', fontWeight: 600, fontSize: '0.85rem' }}>
+-                  <SafetyCertificateOutlined style={{ fontSize: '18px' }} /> Verified Venue Access Pass
+-                </Space>
+-              </div>
+-            </Col>
++              <div style={{ padding: '2rem' }}>
++                <Row gutter={[32, 32]}>
++
++                  <Col xs={24} md={15}>
++                    <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem' }}>
++                      Event &amp; Show Information
++                    </Title>
++
++                    <Space direction="vertical" size="middle" style={{ width: '100%', fontSize: '0.95rem' }}>
++                      {booking.showDatetime && (
++                        <>
++                          <div>
++                            <CalendarOutlined style={{ color: '#6366f1', marginRight: 8 }} />
++                            <strong>Show date:</strong> {formatDate(booking.showDatetime)}
++                          </div>
++                          <div>
++                            <ClockCircleOutlined style={{ color: '#ec4899', marginRight: 8 }} />
++                            <strong>Show time:</strong> {formatTime(booking.showDatetime)}
++                          </div>
++                        </>
++                      )}
++                      {(booking.venueName || booking.city) && (
++                        <div>
++                          <EnvironmentOutlined style={{ color: '#52c41a', marginRight: 8 }} />
++                          <strong>Venue:</strong> {[booking.venueName, booking.city].filter(Boolean).join(', ')}
++                        </div>
++                      )}
++                      <div>
++                        <CreditCardOutlined style={{ color: '#0ea5e9', marginRight: 8 }} />
++                        <strong>Payment status:</strong> {booking.paymentStatus}
++                      </div>
++                      <div>
++                        <ClockCircleOutlined style={{ color: '#fa8c16', marginRight: 8 }} />
++                        <strong>Booked on:</strong> {formatDateTime(booking.bookingDate)}
++                      </div>
++                    </Space>
++
++                    <Divider style={{ margin: '1.5rem 0' }} />
++
++                    <Title level={4} style={{ fontWeight: 800, marginBottom: '1rem' }}>
++                      Ticket Breakdown
++                    </Title>
++
++                    <Space direction="vertical" style={{ width: '100%' }}>
++                      {items.map((item) => (
++                        <div
++                          key={item.ticketTypeId}
++                          style={{
++                            display: 'flex',
++                            justifyContent: 'space-between',
++                            alignItems: 'center',
++                            gap: 12,
++                            background: '#f8fafc',
++                            padding: '12px 16px',
++                            borderRadius: '14px',
++                            border: '1px solid #e2e8f0',
++                          }}
++                        >
++                          <div>
++                            <div style={{ fontWeight: 700 }}>
++                              {item.ticketTypeName || `Ticket #${item.ticketTypeId}`}
++                            </div>
++                            <Text type="secondary" style={{ fontSize: '0.8rem' }}>
++                              {item.quantity} × {formatMoney(item.unitPrice)}
++                            </Text>
++                          </div>
++                          <span style={{ fontWeight: 800, color: '#6366f1', fontSize: '1.1rem', whiteSpace: 'nowrap' }}>
++                            {formatMoney(item.unitPrice * item.quantity)}
++                          </span>
++                        </div>
++                      ))}
++                    </Space>
+ 
+-          </Row>
+-        </div>
+-      </Card>
++                    <div
++                      style={{
++                        display: 'flex',
++                        justifyContent: 'space-between',
++                        alignItems: 'center',
++                        marginTop: '1.5rem',
++                        paddingTop: '1rem',
++                        borderTop: '2px dashed #e2e8f0',
++                      }}
++                    >
++                      <Text style={{ fontWeight: 800, fontSize: '1.1rem' }}>
++                        Total ({totalTickets} {totalTickets === 1 ? 'ticket' : 'tickets'})
++                      </Text>
++                      {/* Server-computed; never recalculated here (§2.5). */}
++                      <span style={{ fontWeight: 800, fontSize: '1.5rem' }}>{formatMoney(booking.totalAmount)}</span>
++                    </div>
++                  </Col>
++
++                  <Col xs={24} md={9} style={{ textAlign: 'center' }}>
++                    <div style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '24px', border: '1px solid #e2e8f0', display: 'inline-block' }}>
++                      <div
++                        style={{
++                          fontWeight: 800,
++                          color: '#6366f1',
++                          marginBottom: '8px',
++                          fontSize: '0.9rem',
++                          textTransform: 'uppercase',
++                          letterSpacing: '0.5px',
++                        }}
++                      >
++                        Entry Pass
++                      </div>
++                      <QRCode
++                        value={booking.bookingReference}
++                        size={180}
++                        status={booking.status === 'CONFIRMED' ? 'active' : 'expired'}
++                      />
++                      <Text style={{ display: 'block', fontWeight: 800, marginTop: '12px', fontSize: '1.05rem' }}>
++                        {booking.bookingReference}
++                      </Text>
++                      <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block', marginTop: '4px' }}>
++                        {booking.status === 'CONFIRMED'
++                          ? 'Show this at the venue entry gate'
++                          : 'Only a CONFIRMED booking grants entry'}
++                      </Text>
++                    </div>
+ 
++                    {booking.status === 'CONFIRMED' && (
++                      <div style={{ marginTop: '1.5rem' }}>
++                        <Space style={{ color: '#52c41a', fontWeight: 600, fontSize: '0.85rem' }}>
++                          <SafetyCertificateOutlined style={{ fontSize: '18px' }} /> Verified venue access pass
++                        </Space>
++                      </div>
++                    )}
++
++                    {booking.status === 'PENDING' && (
++                      <Button
++                        type="primary"
++                        block
++                        onClick={() => navigate(`/booking/${booking.id}/confirm`)}
++                        style={{
++                          marginTop: '1.5rem',
++                          borderRadius: 12,
++                          background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
++                          fontWeight: 700,
++                        }}
++                      >
++                        Confirm this booking
++                      </Button>
++                    )}
++                  </Col>
++
++                </Row>
++              </div>
++            </Card>
++          </>
++        )}
++      </AsyncBoundary>
+     </div>
+   );
+ };
+diff --git a/frontend/src/pages/BookingLookupPage.jsx b/frontend/src/pages/BookingLookupPage.jsx
+new file mode 100644
+index 0000000..0b6e9fe
+--- /dev/null
++++ b/frontend/src/pages/BookingLookupPage.jsx
+@@ -0,0 +1,198 @@
++import React, { useState } from 'react';
++import { useNavigate } from 'react-router-dom';
++import { Card, Input, Button, Typography, Space, Breadcrumb, Tag, Alert, Divider } from 'antd';
++import {
++  SearchOutlined,
++  IdcardOutlined,
++  CalendarOutlined,
++  EnvironmentOutlined,
++  ArrowRightOutlined,
++} from '@ant-design/icons';
++import { getBookingByReference } from '../api/bookings';
++import { enrichBooking } from '../api/enrich';
++import { InlineError } from '../components/AsyncBoundary';
++import { BOOKING_STATUS_COLOR, PAYMENT_STATUS_COLOR } from '../constants/categories';
++import { formatDateTime, formatMoney } from '../utils/format';
++
++const { Title, Text } = Typography;
++
++/**
++ * Look a booking up by its reference code — `GET /api/bookings/reference/{ref}`
++ * (integration plan §3.3).
++ *
++ * The endpoint is scoped to the caller server-side, so this only ever finds your
++ * own bookings; a stranger's code returns 404 rather than leaking anything.
++ *
++ * `bookingReference` is the human-facing string (`EVB-2QPG445X`) — it is what
++ * people read off a ticket. The numeric `id` is what we then navigate with (§2.5).
++ */
++const BookingLookupPage = () => {
++  const navigate = useNavigate();
++
++  const [reference, setReference] = useState('');
++  const [booking, setBooking] = useState(null);
++  const [loading, setLoading] = useState(false);
++  const [error, setError] = useState(null);
++
++  const handleSearch = async () => {
++    const code = reference.trim().toUpperCase();
++    if (!code) return;
++
++    setLoading(true);
++    setError(null);
++    setBooking(null);
++    try {
++      const found = await getBookingByReference(code);
++      setBooking(await enrichBooking(found));
++    } catch (err) {
++      // A 404 here means "not yours, or not a real code" — say that plainly
++      // rather than surfacing a bare "not found".
++      setError(
++        err.isNotFound
++          ? { message: `No booking of yours matches ${code}. Check the code and try again.` }
++          : err,
++      );
++    } finally {
++      setLoading(false);
++    }
++  };
++
++  return (
++    <div style={{ maxWidth: '760px', margin: '2rem auto 4rem auto', padding: '0 1.5rem' }}>
++
++      <Breadcrumb
++        items={[
++          { title: <a onClick={() => navigate('/')}>Home</a> },
++          { title: <a onClick={() => navigate('/my-bookings')}>My Bookings</a> },
++          { title: 'Find by code' },
++        ]}
++        style={{ marginBottom: '1.5rem' }}
++      />
++
++      <div style={{ marginBottom: '1.5rem' }}>
++        <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
++          Find a booking
++        </Title>
++        <Text type="secondary" style={{ fontSize: '0.95rem' }}>
++          Enter the reference code from your ticket, e.g. <code>EVB-2QPG445X</code>
++        </Text>
++      </div>
++
++      <Card style={{ borderRadius: 20, marginBottom: '1.5rem' }}>
++        <Space.Compact style={{ width: '100%' }} size="large">
++          <Input
++            prefix={<IdcardOutlined style={{ color: '#94a3b8' }} />}
++            placeholder="EVB-XXXXXXXX"
++            value={reference}
++            // Codes are uppercase; normalising as they type avoids a pointless 404.
++            onChange={(e) => setReference(e.target.value.toUpperCase())}
++            onPressEnter={handleSearch}
++            allowClear
++            style={{ borderRadius: '12px 0 0 12px', fontFamily: 'monospace', letterSpacing: 1 }}
++          />
++          <Button
++            type="primary"
++            icon={<SearchOutlined />}
++            loading={loading}
++            disabled={!reference.trim()}
++            onClick={handleSearch}
++            style={{
++              borderRadius: '0 12px 12px 0',
++              background: reference.trim() ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)' : undefined,
++              fontWeight: 700,
++            }}
++          >
++            Find
++          </Button>
++        </Space.Compact>
++      </Card>
++
++      <InlineError error={error} onClose={() => setError(null)} />
++
++      {booking && (
++        <Card style={{ borderRadius: 20 }}>
++          <Space wrap style={{ marginBottom: 12 }}>
++            <Tag color={BOOKING_STATUS_COLOR[booking.status] || 'default'} style={{ borderRadius: 10, fontWeight: 700 }}>
++              {booking.status}
++            </Tag>
++            <Tag color={PAYMENT_STATUS_COLOR[booking.paymentStatus] || 'default'} style={{ borderRadius: 10, fontWeight: 700 }}>
++              {booking.paymentStatus}
++            </Tag>
++            <Text type="secondary" style={{ fontFamily: 'monospace', fontWeight: 600 }}>
++              {booking.bookingReference}
++            </Text>
++          </Space>
++
++          <Title level={4} style={{ margin: '0 0 8px 0', fontWeight: 800 }}>
++            {booking.eventTitle || `Show #${booking.showId}`}
++          </Title>
++
++          <Space direction="vertical" size={4} style={{ fontSize: '0.9rem', color: '#475569' }}>
++            {booking.showDatetime && (
++              <div>
++                <CalendarOutlined style={{ color: '#6366f1', marginRight: 6 }} />
++                {formatDateTime(booking.showDatetime)}
++              </div>
++            )}
++            {(booking.venueName || booking.city) && (
++              <div>
++                <EnvironmentOutlined style={{ color: '#ec4899', marginRight: 6 }} />
++                {[booking.venueName, booking.city].filter(Boolean).join(', ')}
++              </div>
++            )}
++          </Space>
++
++          <Divider style={{ margin: '1.25rem 0' }} />
++
++          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
++            <div>
++              <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Total</Text>
++              <span style={{ fontSize: '1.4rem', fontWeight: 800 }}>{formatMoney(booking.totalAmount)}</span>
++            </div>
++
++            <Space>
++              {booking.status === 'PENDING' && (
++                <Button
++                  type="primary"
++                  onClick={() => navigate(`/booking/${booking.id}/confirm`)}
++                  style={{
++                    borderRadius: 12,
++                    background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
++                    fontWeight: 700,
++                  }}
++                >
++                  Confirm now
++                </Button>
++              )}
++              <Button
++                type="primary"
++                icon={<ArrowRightOutlined />}
++                onClick={() => navigate(`/my-bookings/${booking.id}`)}
++                style={{
++                  borderRadius: 12,
++                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++                  fontWeight: 600,
++                }}
++              >
++                Open e-ticket
++              </Button>
++            </Space>
++          </div>
++        </Card>
++      )}
++
++      {!booking && !error && !loading && (
++        <Alert
++          type="info"
++          showIcon
++          message="Only your own bookings are searchable"
++          description="The server matches the code against the account you are signed in with, so someone else's code will not resolve."
++          style={{ borderRadius: 12 }}
++        />
++      )}
++
++    </div>
++  );
++};
++
++export default BookingLookupPage;
+diff --git a/frontend/src/pages/MyBookingsPage.jsx b/frontend/src/pages/MyBookingsPage.jsx
+index a245b76..1fa363c 100644
+--- a/frontend/src/pages/MyBookingsPage.jsx
++++ b/frontend/src/pages/MyBookingsPage.jsx
+@@ -1,216 +1,298 @@
+-import React, { useState } from 'react';
++import React, { useState, useCallback, useMemo } from 'react';
+ import { useNavigate } from 'react-router-dom';
+-import {
+-  Row,
+-  Col,
+-  Card,
+-  Tag,
+-  Button,
+-  Typography,
+-  Space,
+-  Popconfirm,
+-  Breadcrumb,
+-  Empty,
+-  message,
+-  Tabs
+-} from 'antd';
++import { Row, Col, Card, Tag, Button, Typography, Space, Popconfirm, Breadcrumb, Tabs, message } from 'antd';
+ import {
+   CalendarOutlined,
+   EnvironmentOutlined,
+-  IdcardOutlined,
+   EyeOutlined,
+   CloseCircleOutlined,
+-  CheckCircleOutlined,
+-  ClockCircleOutlined
++  ClockCircleOutlined,
++  ReloadOutlined,
++  SearchOutlined,
+ } from '@ant-design/icons';
+-import { MOCK_BOOKINGS } from '../data/mockData';
++import { listMyBookings, cancelBooking } from '../api/bookings';
++import { enrichBookings } from '../api/enrich';
++import { useApiData } from '../hooks/useApiData';
++import AsyncBoundary, { EmptyState, InlineError } from '../components/AsyncBoundary';
++import { BOOKING_STATUS_COLOR, PAYMENT_STATUS_COLOR } from '../constants/categories';
++import { formatDateTime, formatMoney, formatCountdown, secondsUntil, posterOf } from '../utils/format';
+ 
+ const { Title, Text } = Typography;
+ 
++/**
++ * `GET /api/bookings/me` (integration plan §3.3, YG-8).
++ *
++ * Statuses are the backend's exact enum names — PENDING, CONFIRMED, CANCELLED,
++ * EXPIRED. The mock data's `Completed` never existed and its title-case values
++ * would never have matched (§4).
++ *
++ * We show `bookingReference` to the user but always call the API with the numeric
++ * `id` (§2.5).
++ */
++const TABS = [
++  { key: 'all', label: 'All' },
++  { key: 'PENDING', label: '⏳ Awaiting confirmation' },
++  { key: 'CONFIRMED', label: '🎟️ Confirmed' },
++  { key: 'CANCELLED', label: '❌ Cancelled' },
++  { key: 'EXPIRED', label: '⌛ Expired' },
++];
++
+ const MyBookingsPage = () => {
+   const navigate = useNavigate();
+-  const [bookings, setBookings] = useState(MOCK_BOOKINGS);
+   const [activeTab, setActiveTab] = useState('all');
++  const [actionError, setActionError] = useState(null);
++  const [cancellingId, setCancellingId] = useState(null);
++
++  const fetchBookings = useCallback(async () => {
++    const bookings = await listMyBookings();
++    // Until SZ-1 enriches BookingResponse, event title/venue/date come from a
++    // cached show → event lookup. See `src/api/enrich.js`.
++    return enrichBookings(bookings);
++  }, []);
+ 
+-  const handleCancelBooking = (bookingId) => {
+-    setBookings((prev) =>
+-      prev.map((b) =>
+-        b.bookingId === bookingId
+-          ? { ...b, status: 'Cancelled', statusColor: 'red' }
+-          : b
+-      )
+-    );
+-    message.success(`Booking ${bookingId} has been cancelled. Refund initiated.`);
++  const { data, loading, error, reload } = useApiData(fetchBookings, []);
++  const bookings = useMemo(() => data || [], [data]);
++
++  const filtered = activeTab === 'all' ? bookings : bookings.filter((b) => b.status === activeTab);
++
++  const handleCancel = async (booking) => {
++    setCancellingId(booking.id);
++    setActionError(null);
++    try {
++      await cancelBooking(booking.id);
++      message.success(`Booking ${booking.bookingReference} cancelled — seats released.`);
++      reload();
++    } catch (err) {
++      setActionError(err);
++    } finally {
++      setCancellingId(null);
++    }
+   };
+ 
+-  const filteredBookings = activeTab === 'all'
+-    ? bookings
+-    : bookings.filter((b) => b.status.toLowerCase() === activeTab.toLowerCase());
++  const counts = useMemo(() => {
++    const map = { all: bookings.length };
++    bookings.forEach((b) => {
++      map[b.status] = (map[b.status] || 0) + 1;
++    });
++    return map;
++  }, [bookings]);
+ 
+   return (
+     <div style={{ maxWidth: '1100px', margin: '2rem auto 4rem auto', padding: '0 1.5rem' }}>
+-      
+-      {/* Breadcrumb Header */}
++
+       <Breadcrumb
+-        items={[
+-          { title: <a onClick={() => navigate('/')}>Home</a> },
+-          { title: 'My Bookings' }
+-        ]}
++        items={[{ title: <a onClick={() => navigate('/')}>Home</a> }, { title: 'My Bookings' }]}
+         style={{ marginBottom: '1.5rem' }}
+       />
+ 
+-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
++      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: '1.5rem' }}>
+         <div>
+-          <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
++          <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
+             My Event Bookings
+           </Title>
+           <Text type="secondary" style={{ fontSize: '0.95rem' }}>
+-            View and manage your upcoming event passes and ticket history
++            Every pass you have booked, with its live status
+           </Text>
+         </div>
++        <Space>
++          <Button
++            icon={<SearchOutlined />}
++            onClick={() => navigate('/booking/lookup')}
++            style={{ borderRadius: 12, fontWeight: 600 }}
++          >
++            Find by code
++          </Button>
++          <Button icon={<ReloadOutlined />} onClick={reload} style={{ borderRadius: 12, fontWeight: 600 }}>
++            Refresh
++          </Button>
++        </Space>
+       </div>
+ 
+-      {/* Filter Tabs */}
+       <Tabs
+         activeKey={activeTab}
+         onChange={setActiveTab}
+-        items={[
+-          { key: 'all', label: `All Bookings (${bookings.length})` },
+-          { key: 'confirmed', label: '🎟️ Confirmed' },
+-          { key: 'completed', label: '✅ Completed' },
+-          { key: 'cancelled', label: '❌ Cancelled' }
+-        ]}
++        items={TABS.map((tab) => ({
++          key: tab.key,
++          label: counts[tab.key] ? `${tab.label} (${counts[tab.key]})` : tab.label,
++        }))}
+         style={{ marginBottom: '2rem' }}
+       />
+ 
+-      {/* Bookings List */}
+-      {filteredBookings.length > 0 ? (
+-        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+-          {filteredBookings.map((b) => (
+-            <Card
+-              key={b.bookingId}
+-              style={{
+-                borderRadius: '20px',
+-                overflow: 'hidden',
+-                boxShadow: '0 4px 18px rgba(0,0,0,0.03)',
+-                border: '1px solid #e2e8f0',
+-                transition: 'all 0.2s ease'
+-              }}
+-              bodyStyle={{ padding: '1.5rem' }}
+-            >
+-              <Row gutter={[24, 24]} align="middle">
+-                
+-                {/* Event Image */}
+-                <Col xs={24} sm={6} md={5}>
+-                  <img
+-                    src={b.image}
+-                    alt={b.eventTitle}
+-                    style={{
+-                      width: '100%',
+-                      height: '130px',
+-                      objectFit: 'cover',
+-                      borderRadius: '16px'
+-                    }}
+-                  />
+-                </Col>
+-
+-                {/* Booking Info */}
+-                <Col xs={24} sm={18} md={12}>
+-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+-                    <Tag color={b.statusColor} style={{ borderRadius: '10px', fontWeight: 700, padding: '2px 10px' }}>
+-                      {b.status}
+-                    </Tag>
+-                    <Text type="secondary" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
+-                      Code: {b.bookingId}
+-                    </Text>
+-                  </div>
+-
+-                  <h3 style={{ margin: '0 0 8px 0', fontWeight: 800, fontSize: '1.15rem', color: '#0f172a' }}>
+-                    {b.eventTitle}
+-                  </h3>
+-
+-                  <Space direction="vertical" size={2} style={{ fontSize: '0.85rem', color: '#475569' }}>
+-                    <div>
+-                      <CalendarOutlined style={{ color: '#6366f1', marginRight: '6px' }} />
+-                      <strong>Date & Time:</strong> {b.date} • {b.time}
+-                    </div>
+-                    <div>
+-                      <EnvironmentOutlined style={{ color: '#ec4899', marginRight: '6px' }} />
+-                      <strong>Venue:</strong> {b.venue}, {b.cityName}
+-                    </div>
+-                    <div>
+-                      <strong>Passes:</strong> {b.totalTickets} Ticket(s) ({b.selectedTiers.map(t => t.name).join(', ')})
+-                    </div>
+-                  </Space>
+-                </Col>
+-
+-                {/* Price & Actions */}
+-                <Col xs={24} md={7} style={{ textAlign: 'right', borderLeft: '1px solid #f1f5f9' }}>
+-                  <div style={{ marginBottom: '1rem' }}>
+-                    <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Total Paid</Text>
+-                    <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f172a' }}>
+-                      ₹{b.grandTotal}
+-                    </span>
+-                  </div>
+-
+-                  <Space direction="vertical" style={{ width: '100%' }}>
+-                    <Button
+-                      type="primary"
+-                      icon={<EyeOutlined />}
+-                      block
+-                      onClick={() => navigate(`/my-bookings/${b.bookingId}`, { state: { booking: b } })}
+-                      style={{
+-                        borderRadius: '12px',
+-                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+-                        fontWeight: 600
+-                      }}
+-                    >
+-                      View E-Ticket
+-                    </Button>
+-
+-                    {b.status === 'Confirmed' && (
+-                      <Popconfirm
+-                        title="Cancel Booking?"
+-                        description="Are you sure you want to cancel this ticket booking?"
+-                        onConfirm={() => handleCancelBooking(b.bookingId)}
+-                        okText="Yes, Cancel"
+-                        cancelText="No"
+-                        okButtonProps={{ danger: true }}
+-                      >
+-                        <Button
+-                          danger
+-                          type="text"
+-                          icon={<CloseCircleOutlined />}
+-                          block
+-                          style={{ fontWeight: 600 }}
+-                        >
+-                          Cancel Booking
+-                        </Button>
+-                      </Popconfirm>
+-                    )}
+-                  </Space>
+-                </Col>
+-
+-              </Row>
+-            </Card>
+-          ))}
+-        </Space>
+-      ) : (
+-        <Card style={{ borderRadius: '20px', padding: '3rem 1rem', textAlign: 'center' }}>
+-          <Empty
+-            image={Empty.PRESENTED_IMAGE_SIMPLE}
+-            description="No bookings found in this category."
++      <InlineError error={actionError} onClose={() => setActionError(null)} />
++
++      <AsyncBoundary
++        loading={loading}
++        error={error}
++        onRetry={reload}
++        isEmpty={bookings.length === 0}
++        loadingTip="Loading your bookings…"
++        emptyDescription="You have not booked anything yet."
++        emptyAction={
++          <Button
++            type="primary"
++            onClick={() => navigate('/events')}
++            style={{ marginTop: '1rem', borderRadius: 12, background: '#6366f1' }}
+           >
+-            <Button
+-              type="primary"
+-              onClick={() => navigate('/events')}
+-              style={{ marginTop: '1rem', borderRadius: '12px', background: '#6366f1' }}
+-            >
+-              Explore Live Events
+-            </Button>
+-          </Empty>
+-        </Card>
+-      )}
++            Explore live events
++          </Button>
++        }
++      >
++        {filtered.length === 0 ? (
++          <EmptyState description="No bookings with this status." />
++        ) : (
++          <Space direction="vertical" size="large" style={{ width: '100%' }}>
++            {filtered.map((booking) => {
++              const holdSecondsLeft = booking.status === 'PENDING' ? secondsUntil(booking.expiresAt) : 0;
++              const totalTickets = (booking.items || []).reduce((sum, i) => sum + (i.quantity || 0), 0);
++
++              return (
++                <Card
++                  key={booking.id}
++                  style={{ borderRadius: '20px', overflow: 'hidden' }}
++                  styles={{ body: { padding: '1.5rem' } }}
++                >
++                  <Row gutter={[24, 24]} align="middle">
++
++                    <Col xs={24} sm={6} md={5}>
++                      <img
++                        src={posterOf(booking)}
++                        alt={booking.eventTitle || booking.bookingReference}
++                        style={{ width: '100%', height: '130px', objectFit: 'cover', borderRadius: '16px' }}
++                      />
++                    </Col>
++
++                    <Col xs={24} sm={18} md={12}>
++                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px', flexWrap: 'wrap' }}>
++                        <Tag
++                          color={BOOKING_STATUS_COLOR[booking.status] || 'default'}
++                          style={{ borderRadius: '10px', fontWeight: 700, padding: '2px 10px' }}
++                        >
++                          {booking.status}
++                        </Tag>
++                        <Tag color={PAYMENT_STATUS_COLOR[booking.paymentStatus] || 'default'} style={{ borderRadius: 10 }}>
++                          {booking.paymentStatus}
++                        </Tag>
++                        <Text type="secondary" style={{ fontSize: '0.85rem', fontWeight: 600 }}>
++                          {booking.bookingReference}
++                        </Text>
++                      </div>
++
++                      <h3 style={{ margin: '0 0 8px 0', fontWeight: 800, fontSize: '1.15rem' }}>
++                        {booking.eventTitle || `Show #${booking.showId}`}
++                      </h3>
++
++                      <Space direction="vertical" size={2} style={{ fontSize: '0.85rem', color: '#475569' }}>
++                        {booking.showDatetime && (
++                          <div>
++                            <CalendarOutlined style={{ color: '#6366f1', marginRight: 6 }} />
++                            {formatDateTime(booking.showDatetime)}
++                          </div>
++                        )}
++                        {(booking.venueName || booking.city) && (
++                          <div>
++                            <EnvironmentOutlined style={{ color: '#ec4899', marginRight: 6 }} />
++                            {[booking.venueName, booking.city].filter(Boolean).join(', ')}
++                          </div>
++                        )}
++                        <div>
++                          <strong>{totalTickets}</strong> ticket{totalTickets === 1 ? '' : 's'}
++                          {booking.items?.length
++                            ? ` — ${booking.items.map((i) => i.ticketTypeName || `#${i.ticketTypeId}`).join(', ')}`
++                            : ''}
++                        </div>
++                      </Space>
++
++                      {booking.status === 'PENDING' && (
++                        <div
++                          style={{
++                            marginTop: 10,
++                            padding: '8px 12px',
++                            borderRadius: 12,
++                            background: holdSecondsLeft > 0 ? '#fff7ed' : '#fef2f2',
++                            border: `1px solid ${holdSecondsLeft > 0 ? '#fed7aa' : '#fecaca'}`,
++                            fontSize: '0.85rem',
++                            fontWeight: 600,
++                            color: holdSecondsLeft > 0 ? '#c2410c' : '#b91c1c',
++                          }}
++                        >
++                          <ClockCircleOutlined style={{ marginRight: 6 }} />
++                          {holdSecondsLeft > 0
++                            ? `Not confirmed yet — seats released in ${formatCountdown(holdSecondsLeft)}`
++                            : 'Hold expired — the sweeper will release these seats shortly'}
++                        </div>
++                      )}
++                    </Col>
++
++                    <Col xs={24} md={7} style={{ textAlign: 'right' }}>
++                      <div style={{ marginBottom: '1rem' }}>
++                        <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>
++                          {booking.paymentStatus === 'PAID' ? 'Total paid' : 'Total amount'}
++                        </Text>
++                        <span style={{ fontSize: '1.5rem', fontWeight: 800 }}>{formatMoney(booking.totalAmount)}</span>
++                      </div>
++
++                      <Space direction="vertical" style={{ width: '100%' }}>
++                        {booking.status === 'PENDING' && holdSecondsLeft > 0 ? (
++                          <Button
++                            type="primary"
++                            block
++                            onClick={() => navigate(`/booking/${booking.id}/confirm`)}
++                            style={{
++                              borderRadius: '12px',
++                              background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
++                              fontWeight: 700,
++                            }}
++                          >
++                            Confirm now
++                          </Button>
++                        ) : (
++                          <Button
++                            type="primary"
++                            icon={<EyeOutlined />}
++                            block
++                            onClick={() => navigate(`/my-bookings/${booking.id}`)}
++                            style={{
++                              borderRadius: '12px',
++                              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
++                              fontWeight: 600,
++                            }}
++                          >
++                            View e-ticket
++                          </Button>
++                        )}
++
++                        {/* Only a live booking can be cancelled — the API rejects the rest. */}
++                        {(booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
++                          <Popconfirm
++                            title="Cancel this booking?"
++                            description="Your seats go back on sale immediately."
++                            onConfirm={() => handleCancel(booking)}
++                            okText="Yes, cancel"
++                            cancelText="Keep it"
++                            okButtonProps={{ danger: true }}
++                          >
++                            <Button
++                              danger
++                              type="text"
++                              icon={<CloseCircleOutlined />}
++                              block
++                              loading={cancellingId === booking.id}
++                              style={{ fontWeight: 600 }}
++                            >
++                              Cancel booking
++                            </Button>
++                          </Popconfirm>
++                        )}
++                      </Space>
++                    </Col>
++
++                  </Row>
++                </Card>
++              );
++            })}
++          </Space>
++        )}
++      </AsyncBoundary>
+ 
+     </div>
+   );
+-- 
+2.55.0.windows.3
+
