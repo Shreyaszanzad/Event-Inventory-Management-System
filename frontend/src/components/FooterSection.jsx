@@ -1,19 +1,35 @@
 import React from 'react';
-import { Layout, Row, Col, Space, Input, Button, Divider } from 'antd';
+import { Link } from 'react-router-dom';
+import { Layout, Row, Col, Space, Button, Divider } from 'antd';
 import {
   IdcardOutlined,
-  SendOutlined,
   FacebookFilled,
   TwitterSquareFilled,
   InstagramFilled,
   YoutubeFilled,
   SafetyCertificateOutlined,
   CustomerServiceOutlined,
-  LockOutlined
+  LockOutlined,
+  ArrowRightOutlined
 } from '@ant-design/icons';
+import { CATEGORY_LABELS } from '../constants/categories';
 
 const { Footer } = Layout;
 
+const linkStyle = { color: '#94a3b8', textDecoration: 'none' };
+
+/**
+ * Site footer.
+ *
+ * The category list is built from `CATEGORY_LABELS` — the backend's four real
+ * enum values — rather than the six invented ones this footer used to list
+ * (Sports / Workshops / Theatre never existed in the API). Each one deep-links
+ * into the events listing with that filter applied (§4, YG-7).
+ *
+ * The "Company" entries are plain text, not `href="#"` links: there are no such
+ * pages, and a link that scrolls you to the top of the page reads as broken. The
+ * newsletter box is gone for the same reason — nothing was behind it.
+ */
 const FooterSection = () => {
   return (
     <Footer style={{ background: '#0f172a', color: '#94a3b8', padding: '4rem 2rem 2rem 2rem' }}>
@@ -70,56 +86,58 @@ const FooterSection = () => {
               </span>
             </div>
             <p style={{ lineHeight: '1.6', fontSize: '0.9rem' }}>
-              EventPass is India's leading event discovery and ticket booking platform. Find and book tickets for concerts, comedy, sports, and live experiences near you.
+              EventPass is an event discovery and ticket booking platform for movies, standup comedy,
+              amusement parks and live events.
             </p>
             <Space size="middle" style={{ marginTop: '1rem' }}>
-              <FacebookFilled style={{ fontSize: '22px', color: '#94a3b8', cursor: 'pointer' }} />
-              <TwitterSquareFilled style={{ fontSize: '22px', color: '#94a3b8', cursor: 'pointer' }} />
-              <InstagramFilled style={{ fontSize: '22px', color: '#94a3b8', cursor: 'pointer' }} />
-              <YoutubeFilled style={{ fontSize: '22px', color: '#94a3b8', cursor: 'pointer' }} />
+              <FacebookFilled style={{ fontSize: '22px', color: '#94a3b8' }} />
+              <TwitterSquareFilled style={{ fontSize: '22px', color: '#94a3b8' }} />
+              <InstagramFilled style={{ fontSize: '22px', color: '#94a3b8' }} />
+              <YoutubeFilled style={{ fontSize: '22px', color: '#94a3b8' }} />
             </Space>
           </Col>
 
           <Col xs={12} sm={6} md={5}>
-            <h4 style={{ color: '#ffffff', marginBottom: '1.2rem', fontSize: '1rem' }}>Popular Categories</h4>
+            <h4 style={{ color: '#ffffff', marginBottom: '1.2rem', fontSize: '1rem' }}>Browse Categories</h4>
             <ul style={{ listStyle: 'none', padding: 0, lineHeight: '2.2', fontSize: '0.9rem' }}>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Music Concerts</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Standup Comedy</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Sports & Matches</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Workshops & Seminars</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Theatre & Plays</a></li>
+              {Object.entries(CATEGORY_LABELS).map(([value, meta]) => (
+                <li key={value}>
+                  <Link to={`/events?category=${value}`} style={linkStyle}>
+                    {meta.icon} {meta.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </Col>
 
           <Col xs={12} sm={6} md={5}>
-            <h4 style={{ color: '#ffffff', marginBottom: '1.2rem', fontSize: '1rem' }}>Company</h4>
+            <h4 style={{ color: '#ffffff', marginBottom: '1.2rem', fontSize: '1rem' }}>Quick Links</h4>
             <ul style={{ listStyle: 'none', padding: 0, lineHeight: '2.2', fontSize: '0.9rem' }}>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>About Us</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>List Your Event</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Careers</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Terms & Conditions</a></li>
-              <li><a href="#" style={{ color: '#94a3b8', textDecoration: 'none' }}>Privacy Policy</a></li>
+              <li><Link to="/events" style={linkStyle}>All events</Link></li>
+              <li><Link to="/my-bookings" style={linkStyle}>My bookings</Link></li>
+              <li><Link to="/booking/lookup" style={linkStyle}>Find booking by code</Link></li>
+              <li><Link to="/profile" style={linkStyle}>My account</Link></li>
+              <li><Link to="/admin/login" style={linkStyle}>Administrator sign in</Link></li>
             </ul>
           </Col>
 
           <Col xs={24} md={6}>
-            <h4 style={{ color: '#ffffff', marginBottom: '1rem', fontSize: '1rem' }}>Subscribe for Exclusive Offers</h4>
+            <h4 style={{ color: '#ffffff', marginBottom: '1rem', fontSize: '1rem' }}>Ready to book?</h4>
             <p style={{ fontSize: '0.85rem', marginBottom: '1rem' }}>
-              Get early bird discounts and event alerts straight to your inbox.
+              Browse what&apos;s on sale, pick a show slot, and your seats are held for 10 minutes while you check out.
             </p>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input placeholder="Enter your email" style={{ background: '#1e293b', border: '1px solid #334155', color: '#fff' }} />
-              <Button type="primary" icon={<SendOutlined />} style={{ background: '#6366f1' }}>
-                Join
+            <Link to="/events">
+              <Button type="primary" icon={<ArrowRightOutlined />} style={{ background: '#6366f1', borderRadius: 10, fontWeight: 600 }}>
+                Explore events
               </Button>
-            </Space.Compact>
+            </Link>
           </Col>
         </Row>
 
         <Divider style={{ borderColor: '#1e293b', margin: 0 }} />
 
         {/* Bottom Copyright */}
-        <div style={{ paddingT: '1.5rem', marginTop: '1.5rem', textAlign: 'center', fontSize: '0.85rem' }}>
+        <div style={{ paddingTop: '1.5rem', marginTop: '1.5rem', textAlign: 'center', fontSize: '0.85rem' }}>
           © {new Date().getFullYear()} EventPass Management System. All rights reserved. Designed with Ant Design.
         </div>
       </div>

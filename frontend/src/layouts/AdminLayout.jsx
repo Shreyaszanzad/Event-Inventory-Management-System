@@ -5,9 +5,7 @@ import {
   Menu,
   Button,
   Avatar,
-  Badge,
   Dropdown,
-  Input,
   Space,
   Typography
 } from 'antd';
@@ -16,12 +14,8 @@ import {
   CalendarOutlined,
   ClockCircleOutlined,
   IdcardOutlined,
-  BarChartOutlined,
-  SettingOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  BellOutlined,
-  SearchOutlined,
   UserOutlined,
   LogoutOutlined,
   HomeOutlined,
@@ -30,78 +24,47 @@ import {
   MoonOutlined
 } from '@ant-design/icons';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
+/**
+ * Admin chrome. Reached only through `<AdminRoute>`, so anything rendered inside
+ * is guaranteed to belong to a signed-in `ROLE_ADMIN` session (YG-3).
+ */
 const AdminLayout = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDarkMode, toggleTheme } = useTheme();
+  const { displayName, signOut } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
 
   const menuItems = [
-    {
-      key: '/admin',
-      icon: <DashboardOutlined />,
-      label: 'Dashboard'
-    },
-    {
-      key: '/admin/events',
-      icon: <CalendarOutlined />,
-      label: 'Manage Events'
-    },
-    {
-      key: '/admin/shows',
-      icon: <ClockCircleOutlined />,
-      label: 'Show Slots'
-    },
-    {
-      key: '/admin/ticket-types',
-      icon: <TagOutlined />,
-      label: 'Ticket Types'
-    },
-    {
-      key: '/my-bookings',
-      icon: <IdcardOutlined />,
-      label: 'Bookings'
-    },
-    {
-      key: '/profile',
-      icon: <UserOutlined />,
-      label: 'Account Profile'
-    },
-    {
-      key: '/',
-      icon: <HomeOutlined />,
-      label: 'Back to Public Site'
-    }
+    { key: '/admin', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/admin/events', icon: <CalendarOutlined />, label: 'Manage Events' },
+    { key: '/admin/shows', icon: <ClockCircleOutlined />, label: 'Show Slots' },
+    { key: '/admin/ticket-types', icon: <TagOutlined />, label: 'Ticket Tiers' },
+    { key: '/my-bookings', icon: <IdcardOutlined />, label: 'My Bookings' },
+    { key: '/profile', icon: <UserOutlined />, label: 'Account' },
+    { key: '/', icon: <HomeOutlined />, label: 'Back to Public Site' },
   ];
 
   const adminProfileMenu = {
     items: [
-      {
-        key: 'profile',
-        icon: <UserOutlined />,
-        label: 'Admin Profile',
-        onClick: () => navigate('/profile')
-      },
-      {
-        key: 'settings',
-        icon: <SettingOutlined />,
-        label: 'System Settings'
-      },
-      {
-        type: 'divider'
-      },
+      { key: 'profile', icon: <UserOutlined />, label: 'Account', onClick: () => navigate('/profile') },
+      { type: 'divider' },
       {
         key: 'logout',
         icon: <LogoutOutlined />,
-        label: 'Logout',
+        label: 'Sign out',
         danger: true,
-        onClick: () => navigate('/login')
-      }
-    ]
+        onClick: () => {
+          signOut();
+          navigate('/');
+        },
+      },
+    ],
   };
 
   return (
@@ -154,27 +117,19 @@ const AdminLayout = ({ children }) => {
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
-            justify: 'space-between',
+            justifyContent: 'space-between',
             position: 'sticky',
             top: 0,
             zIndex: 99,
             boxShadow: '0 2px 10px rgba(0,0,0,0.02)'
           }}
         >
-          <Space align="center">
-            <Button
-              type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-              onClick={() => setCollapsed(!collapsed)}
-              style={{ fontSize: '18px', width: 40, height: 40 }}
-            />
-
-            <Input
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="Global admin search (events, bookings, users)..."
-              style={{ width: 280, borderRadius: '10px', backgroundColor: '#f8fafc' }}
-            />
-          </Space>
+          <Button
+            type="text"
+            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => setCollapsed(!collapsed)}
+            style={{ fontSize: '18px', width: 40, height: 40 }}
+          />
 
           <Space size="large" align="center">
             <Button
@@ -185,16 +140,12 @@ const AdminLayout = ({ children }) => {
               style={{ width: 40, height: 40 }}
             />
 
-            <Badge count={5} overflowCount={99}>
-              <Button type="text" shape="circle" icon={<BellOutlined style={{ fontSize: '18px' }} />} />
-            </Badge>
-
-            <Dropdown menu={adminProfileMenu} placement="bottomRight" arrow>
+            <Dropdown menu={adminProfileMenu} placement="bottomRight" arrow trigger={['click']}>
               <Space style={{ cursor: 'pointer' }}>
-                <Avatar src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=100&q=80" />
+                <Avatar style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)' }} icon={<UserOutlined />} />
                 <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.2' }}>
-                  <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.85rem' }}>Admin User</span>
-                  <Text type="secondary" style={{ fontSize: '0.75rem' }}>Super Administrator</Text>
+                  <span style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.85rem' }}>{displayName}</span>
+                  <Text type="secondary" style={{ fontSize: '0.75rem' }}>Administrator</Text>
                 </div>
               </Space>
             </Dropdown>
