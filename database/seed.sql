@@ -570,9 +570,11 @@ VALUES
 -- ============================================================================
 -- 11. EVENT INVENTORY ALLOCATIONS
 -- ----------------------------------------------------------------------------
--- Event 5 is the INVENTORY-type "Corporate Annual Event". The three ALLOCATED
--- rows match the reduced available_qty values above; the RETURNED row is
--- history and holds no stock, so it does not affect availability.
+-- Event 5 is the INVENTORY-type "Corporate Annual Event" — and inventory may
+-- only be allocated to INVENTORY-type events, so every row below points at it.
+-- The three ALLOCATED rows match the reduced available_qty values above; the
+-- RETURNED row is history and holds no stock, so it does not affect
+-- availability.
 -- ============================================================================
 
 INSERT INTO event_inventory
@@ -614,11 +616,11 @@ VALUES
     NULL
 ),
 (
-    1,
+    5,
     4,
     4,
     'RETURNED',
-    'Comedy night hand-helds — returned after the show.',
+    'Hand-held mics for the AGM address — returned the same evening.',
     DATE_SUB(NOW(6), INTERVAL 2 DAY),
     DATE_SUB(NOW(6), INTERVAL 1 DAY)
 );

@@ -20,6 +20,8 @@ import {
   LogoutOutlined,
   HomeOutlined,
   TagOutlined,
+  InboxOutlined,
+  DeploymentUnitOutlined,
   SunOutlined,
   MoonOutlined
 } from '@ant-design/icons';
@@ -45,6 +47,8 @@ const AdminLayout = ({ children }) => {
     { key: '/admin/events', icon: <CalendarOutlined />, label: 'Manage Events' },
     { key: '/admin/shows', icon: <ClockCircleOutlined />, label: 'Show Slots' },
     { key: '/admin/ticket-types', icon: <TagOutlined />, label: 'Ticket Tiers' },
+    { key: '/admin/inventory', icon: <InboxOutlined />, label: 'Inventory' },
+    { key: '/admin/event-inventory', icon: <DeploymentUnitOutlined />, label: 'Event Inventory' },
     { key: '/my-bookings', icon: <IdcardOutlined />, label: 'My Bookings' },
     { key: '/profile', icon: <UserOutlined />, label: 'Account' },
     { key: '/', icon: <HomeOutlined />, label: 'Back to Public Site' },

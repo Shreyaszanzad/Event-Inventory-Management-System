@@ -1,11 +1,13 @@
 package com.softpoly.eventinventory.inventory;
 
 import com.softpoly.eventinventory.common.enums.AllocationStatus;
+import com.softpoly.eventinventory.common.enums.EventType;
 import com.softpoly.eventinventory.common.enums.InventoryCategory;
 import com.softpoly.eventinventory.common.enums.InventoryStatus;
 import com.softpoly.eventinventory.common.exception.BadRequestException;
 import com.softpoly.eventinventory.common.exception.ResourceNotFoundException;
 import com.softpoly.eventinventory.common.time.AppTime;
+import com.softpoly.eventinventory.event.Event;
 import com.softpoly.eventinventory.event.EventRepository;
 import com.softpoly.eventinventory.inventory.dto.AllocateInventoryRequest;
 import com.softpoly.eventinventory.inventory.dto.EventInventoryResponse;
@@ -144,7 +146,7 @@ public class InventoryService {
      */
     @Transactional
     public EventInventoryResponse allocate(Long eventId, AllocateInventoryRequest dto) {
-        requireEvent(eventId);
+        requireInventoryEvent(eventId);
         InventoryItem item = findItemOrThrow(dto.inventoryItemId());
 
         if (item.getStatus() == InventoryStatus.RETIRED) {
@@ -185,7 +187,7 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public List<EventInventoryResponse> listForEvent(Long eventId) {
-        requireEvent(eventId);
+        requireInventoryEvent(eventId);
         List<EventInventory> allocations = allocationRepository.findByEventIdOrderByAllocatedAtDesc(eventId);
         Map<Long, InventoryItem> itemsById = loadItems(allocations);
 
@@ -277,9 +279,22 @@ public class InventoryService {
                 .collect(Collectors.toMap(InventoryItem::getId, Function.identity()));
     }
 
-    private void requireEvent(Long eventId) {
-        if (!eventRepository.existsById(eventId)) {
-            throw new ResourceNotFoundException("Event not found with id " + eventId);
+    /**
+     * Inventory belongs to INVENTORY-type events only.
+     *
+     * <p>That is what the {@code type} discriminator on Event is for: TICKETED events sell seats
+     * through shows and ticket tiers, INVENTORY events consume physical stock. Allowing kit to be
+     * hung off a ticketed concert would make the discriminator meaningless and put equipment in
+     * the customer-facing booking flow, where it has no business being.
+     */
+    private void requireInventoryEvent(Long eventId) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found with id " + eventId));
+
+        if (event.getType() != EventType.INVENTORY) {
+            throw new BadRequestException(
+                    "'" + event.getTitle() + "' is a " + event.getType()
+                            + " event. Inventory can only be allocated to INVENTORY-type events.");
         }
     }
 

@@ -25,6 +25,8 @@ import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminEventsPage from './pages/admin/AdminEventsPage';
 import AdminShowsPage from './pages/admin/AdminShowsPage';
 import AdminTicketTypesPage from './pages/admin/AdminTicketTypesPage';
+import AdminInventoryPage from './pages/admin/AdminInventoryPage';
+import AdminEventInventoryPage from './pages/admin/AdminEventInventoryPage';
 
 const { Content } = Layout;
 
@@ -73,6 +75,8 @@ function AppContent() {
                       <Route path="/events" element={<AdminEventsPage />} />
                       <Route path="/shows" element={<AdminShowsPage />} />
                       <Route path="/ticket-types" element={<AdminTicketTypesPage />} />
+                      <Route path="/inventory" element={<AdminInventoryPage />} />
+                      <Route path="/event-inventory" element={<AdminEventInventoryPage />} />
                       <Route path="*" element={<Navigate to="/admin" replace />} />
                     </Routes>
                   </AdminLayout>
