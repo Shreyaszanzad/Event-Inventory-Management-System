@@ -219,7 +219,11 @@ const ShowSelectionPage = () => {
                 type="primary"
                 size="large"
                 disabled={!selectedShow || selectedShow.soldOut || selectedShow.tierCount === 0}
-                onClick={() => navigate(`/booking/${event.id}/tickets`, { state: { showId: selectedShow.id } })}
+                onClick={() =>
+                  navigate(`/booking/${event.id}/tickets?showId=${selectedShow.id}`, {
+                    state: { showId: selectedShow.id },
+                  })
+                }
                 style={{
                   height: '52px',
                   borderRadius: '16px',

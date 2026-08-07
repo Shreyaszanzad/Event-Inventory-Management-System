@@ -31,7 +31,10 @@ const LoginPage = () => {
   const [cooldown, setCooldown] = useState(0);
 
   /** Where the user was headed before the guard bounced them here. */
-  const redirectTo = location.state?.from?.pathname || '/';
+  // Keep the query string — the ticket page carries its `showId` there.
+  const redirectTo = location.state?.from
+    ? `${location.state.from.pathname}${location.state.from.search || ''}`
+    : '/';
 
   useEffect(() => {
     if (isAuthenticated) navigate(redirectTo, { replace: true });

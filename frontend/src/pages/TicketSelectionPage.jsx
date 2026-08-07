@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Row, Col, Card, Button, Tag, Typography, Space, Steps, InputNumber, Divider, Breadcrumb, Alert } from 'antd';
 import {
   CalendarOutlined,
@@ -39,9 +39,13 @@ const TicketSelectionPage = () => {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { isAuthenticated } = useAuth();
 
-  const showId = location.state?.showId;
+  // The query string is the source of truth so a refresh, a shared link or a
+  // back-navigation still resolves the show. Router state stays as a fallback
+  // for any link that has not been updated yet.
+  const showId = searchParams.get('showId') || location.state?.showId;
 
   const [quantities, setQuantities] = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -92,7 +96,11 @@ const TicketSelectionPage = () => {
       // Booking needs a JWT. Send them to login and come straight back here with
       // their selection intact.
       navigate('/login', {
-        state: { from: { pathname: `/booking/${eventId}/tickets` }, showId },
+        state: {
+          // Carry the query too, or the selection comes back without a show.
+          from: { pathname: `/booking/${eventId}/tickets`, search: `?showId=${showId}` },
+          showId,
+        },
       });
       return;
     }
