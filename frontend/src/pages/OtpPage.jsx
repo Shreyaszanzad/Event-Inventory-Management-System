@@ -1,59 +1,106 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Form, Input, Button, Card, Typography, Space, Row, Col, message, Alert } from 'antd';
-import { SafetyCertificateOutlined, ArrowLeftOutlined, ReloadOutlined, CheckCircleOutlined, IdcardOutlined } from '@ant-design/icons';
+import { Input, Button, Card, Typography, message, Alert } from 'antd';
+import {
+  SafetyCertificateOutlined,
+  ArrowLeftOutlined,
+  ReloadOutlined,
+  CheckCircleOutlined,
+} from '@ant-design/icons';
+import { verifyOtp, requestOtp } from '../api/auth';
+import { useAuth } from '../context/AuthContext';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
+
+/**
+ * Step 2 of user login: verify the OTP and store the JWT (integration plan §3.1).
+ *
+ * The resend timer is set to 60s to match `app.otp.resend-cooldown-seconds`;
+ * resending earlier just earns a 429. While the backend runs in mock mode the
+ * previous screen hands us `devOtp`, which we prefill to keep testing quick —
+ * once SZ-6 turns mock mode off that field is simply absent and the box starts empty.
+ */
+const RESEND_COOLDOWN_SECONDS = 60;
 
 const OtpPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const mobileNumber = location.state?.mobileNumber || '9876543210';
+  const { signIn } = useAuth();
 
+  const phone = location.state?.phone;
+  const redirectTo = location.state?.from?.pathname || '/';
+
+  // Deliberately NOT prefilled from `devOtp`. Auto-filling the box makes the
+  // verification step look staged, hides the wrong-OTP and rate-limit paths from
+  // testing, and would change behaviour the moment SZ-6 turns mock mode off.
+  // The code is shown in the notice below instead, so testing stays quick.
   const [otp, setOtp] = useState('');
-  const [timer, setTimer] = useState(30);
-  const [canResend, setCanResend] = useState(false);
+  const [devOtp, setDevOtp] = useState(location.state?.devOtp || null);
+  const [timer, setTimer] = useState(RESEND_COOLDOWN_SECONDS);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Landing here directly (refresh, bookmark) means we have no phone to verify.
+  useEffect(() => {
+    if (!phone) navigate('/login', { replace: true });
+  }, [phone, navigate]);
 
   useEffect(() => {
-    let interval = null;
-    if (timer > 0) {
-      interval = setInterval(() => {
-        setTimer((prev) => prev - 1);
-      }, 1000);
-    } else {
-      setCanResend(true);
-      if (interval) clearInterval(interval);
-    }
-    return () => clearInterval(interval);
+    if (timer <= 0) return undefined;
+    const interval = setTimeout(() => setTimer((t) => t - 1), 1000);
+    return () => clearTimeout(interval);
   }, [timer]);
 
-  const handleResendOtp = () => {
-    setTimer(30);
-    setCanResend(false);
-    message.success('A new 6-digit OTP code has been sent to +91 ' + mobileNumber);
+  const handleResend = async () => {
+    setResending(true);
+    setError(null);
+    try {
+      const result = await requestOtp(phone);
+      setDevOtp(result?.devOtp || null);
+      // The previous code is now dead — the backend invalidates it on resend.
+      setOtp('');
+      setTimer(RESEND_COOLDOWN_SECONDS);
+      message.success(`A new OTP has been sent to +91 ${phone}`);
+    } catch (err) {
+      setError(err);
+      // A 429 here means the per-phone window is exhausted, not just the cooldown.
+      if (err.isRateLimited) setTimer(RESEND_COOLDOWN_SECONDS);
+    } finally {
+      setResending(false);
+    }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     if (otp.length < 6) {
-      message.error('Please enter the full 6-digit OTP code');
+      setError({ message: 'Please enter the full 6-digit OTP code.' });
       return;
     }
 
     setLoading(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      const authResponse = await verifyOtp(phone, otp);
+      signIn(authResponse);
+      message.success('Signed in successfully.');
+      navigate(redirectTo, { replace: true });
+    } catch (err) {
+      setError(err);
+      // Wrong codes are capped and then burned, so clear the box to make it
+      // obvious the previous attempt is spent.
+      setOtp('');
+    } finally {
       setLoading(false);
-      message.success('Authentication Successful! Welcome to EventPass.');
-      navigate('/');
-    }, 1000);
+    }
   };
+
+  if (!phone) return null;
 
   return (
     <div className="auth-container">
       <Card className="auth-card" style={{ maxWidth: '480px', width: '100%' }}>
         <div style={{ padding: '2.5rem 2rem' }}>
-          
-          {/* Back Button */}
+
           <Button
             type="text"
             icon={<ArrowLeftOutlined />}
@@ -64,36 +111,66 @@ const OtpPage = () => {
           </Button>
 
           <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{ background: '#f5f3ff', width: '64px', height: '64px', borderRadius: '20px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', marginBottom: '1rem' }}>
+            <div
+              style={{
+                background: '#f5f3ff',
+                width: '64px',
+                height: '64px',
+                borderRadius: '20px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#6366f1',
+                marginBottom: '1rem',
+              }}
+            >
               <SafetyCertificateOutlined style={{ fontSize: '32px' }} />
             </div>
-            <Title level={3} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
+            <Title level={3} style={{ margin: 0, fontWeight: 800 }}>
               OTP Verification
             </Title>
             <Text type="secondary" style={{ fontSize: '0.9rem', display: 'block', marginTop: '6px' }}>
-              Enter 6-digit code sent to <strong style={{ color: '#0f172a' }}>+91 {mobileNumber}</strong>
+              Enter the 6-digit code sent to <strong>+91 {phone}</strong>
             </Text>
           </div>
 
-          <Alert
-            message="Test OTP: 123456"
-            type="info"
-            showIcon
-            style={{ marginBottom: '1.5rem', borderRadius: '12px' }}
-          />
+          {/* Dev-mode only: disappears once `app.otp.mock-enabled` is false (SZ-6). */}
+          {devOtp && (
+            <Alert
+              type="info"
+              showIcon
+              message={
+                <span>
+                  Dev mode — your code is{' '}
+                  <strong style={{ fontFamily: 'monospace', fontSize: '1.15rem', letterSpacing: '2px' }}>
+                    {devOtp}
+                  </strong>
+                </span>
+              }
+              description="No SMS is sent while OTP is mocked, so the backend returns the code in its response. Type it in below."
+              style={{ marginBottom: '1.5rem', borderRadius: '12px' }}
+            />
+          )}
 
-          {/* OTP Input Field using Antd Input.OTP */}
+          {error && (
+            <Alert
+              type={error.isRateLimited ? 'warning' : 'error'}
+              showIcon
+              message={error.message}
+              style={{ marginBottom: '1.5rem', borderRadius: '12px' }}
+            />
+          )}
+
           <div style={{ marginBottom: '2rem', textAlign: 'center' }} className="otp-box-input">
             <Input.OTP
               length={6}
               value={otp}
-              onChange={(value) => setOtp(value)}
+              onChange={setOtp}
               size="large"
               autoFocus
             />
           </div>
 
-          {/* Action Buttons */}
           <Button
             type="primary"
             onClick={handleVerify}
@@ -107,27 +184,27 @@ const OtpPage = () => {
               fontWeight: 700,
               fontSize: '1rem',
               boxShadow: '0 6px 18px rgba(99, 102, 241, 0.35)',
-              marginBottom: '1.5rem'
+              marginBottom: '1.5rem',
             }}
           >
-            Verify & Proceed <CheckCircleOutlined />
+            Verify &amp; Proceed <CheckCircleOutlined />
           </Button>
 
-          {/* Resend & Timer */}
           <div style={{ textAlign: 'center' }}>
-            {canResend ? (
+            {timer > 0 ? (
+              <Text type="secondary" style={{ fontSize: '0.85rem' }}>
+                Resend OTP available in <strong style={{ color: '#6366f1' }}>{timer}s</strong>
+              </Text>
+            ) : (
               <Button
                 type="link"
                 icon={<ReloadOutlined />}
-                onClick={handleResendOtp}
+                onClick={handleResend}
+                loading={resending}
                 style={{ fontWeight: 700, color: '#6366f1' }}
               >
                 Resend OTP Code
               </Button>
-            ) : (
-              <Text type="secondary" style={{ fontSize: '0.85rem' }}>
-                Resend OTP available in <strong style={{ color: '#6366f1' }}>{timer}s</strong>
-              </Text>
             )}
           </div>
 
