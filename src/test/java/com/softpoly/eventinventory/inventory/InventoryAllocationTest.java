@@ -43,9 +43,13 @@ class InventoryAllocationTest {
     @Autowired InventoryItemRepository itemRepository;
 
     private Long newEvent(String title) {
+        return newEvent(title, EventType.INVENTORY);
+    }
+
+    private Long newEvent(String title, EventType type) {
         return eventRepository.save(Event.builder()
                 .title(title)
-                .type(EventType.INVENTORY)
+                .type(type)
                 .status("ACTIVE")
                 .build()).getId();
     }
@@ -142,6 +146,29 @@ class InventoryAllocationTest {
                 eventId, new AllocateInventoryRequest(item.id(), 5, null)))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessageContaining("already allocated");
+    }
+
+    @Test
+    void inventoryCannotBeAllocatedToATicketedEvent() {
+        Long ticketedEventId = newEvent("A ticketed concert", EventType.TICKETED);
+        InventoryItemResponse item = newItem("Stage speaker", 10);
+
+        assertThatThrownBy(() -> inventoryService.allocate(
+                ticketedEventId, new AllocateInventoryRequest(item.id(), 2, null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("INVENTORY-type events");
+
+        // and the stock must be untouched
+        assertThat(itemRepository.findById(item.id()).orElseThrow().getAvailableQty()).isEqualTo(10);
+    }
+
+    @Test
+    void listingInventoryForATicketedEventIsAlsoRejected() {
+        Long ticketedEventId = newEvent("Another ticketed show", EventType.TICKETED);
+
+        assertThatThrownBy(() -> inventoryService.listForEvent(ticketedEventId))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("INVENTORY-type events");
     }
 
     /**
