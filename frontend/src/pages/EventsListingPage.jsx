@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Row,
@@ -9,212 +9,178 @@ import {
   DatePicker,
   Button,
   Pagination,
-  Skeleton,
-  Empty,
   Typography,
-  Space,
-  Tag,
   Breadcrumb,
-  Divider
 } from 'antd';
-import {
-  SearchOutlined,
-  EnvironmentOutlined,
-  CalendarOutlined,
-  FilterOutlined,
-  ReloadOutlined,
-  StarFilled,
-  ArrowRightOutlined,
-  AppstoreOutlined
-} from '@ant-design/icons';
-import { EVENTS, CITIES, CATEGORIES } from '../data/mockData';
+import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { listPublicEvents } from '../api/events';
+import { useApiData } from '../hooks/useApiData';
+import AsyncBoundary, { EmptyState } from '../components/AsyncBoundary';
+import EventCard from '../components/EventCard';
+import { CATEGORY_OPTIONS, deriveCityOptions, categoryLabel } from '../constants/categories';
+import { parseDate } from '../utils/format';
 
 const { Title, Text } = Typography;
 
+const PAGE_SIZE = 6;
+
+/**
+ * Events listing, backed by `GET /api/events` (integration plan §3.2).
+ *
+ * Filtering and sorting happen client-side because the API returns the whole
+ * public feed in one call and exposes no query parameters. Cities come from the
+ * events themselves — `city` is a free-text column, so a hardcoded list would go
+ * stale the moment an admin types a new one (§4).
+ *
+ * The mock `price` / `rating` sorts are gone: neither field exists on an event.
+ */
 const EventsListingPage = () => {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
-  // Filter States
+  const { data, loading, error, reload } = useApiData(listPublicEvents, []);
+  const events = useMemo(() => data || [], [data]);
+
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || 'all');
   const [selectedCity, setSelectedCity] = useState(searchParams.get('city') || 'all');
   const [selectedDate, setSelectedDate] = useState(null);
-  const [sortBy, setSortBy] = useState('popularity');
+  const [sortBy, setSortBy] = useState('date-soonest');
   const [currentPage, setCurrentPage] = useState(1);
-  const [loading, setLoading] = useState(true);
 
-  const pageSize = 6;
-
-  // Simulate loading delay for skeleton effect
+  // Links into this page carry filters in the URL (`/events?category=COMEDY`).
+  // Reading them only in `useState` would silently ignore a link clicked while
+  // already on this route, since React Router re-renders rather than remounts.
   useEffect(() => {
-    setLoading(true);
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchQuery, selectedCategory, selectedCity, selectedDate, sortBy, currentPage]);
+    setSearchQuery(searchParams.get('q') || '');
+    setSelectedCategory(searchParams.get('category') || 'all');
+    setSelectedCity(searchParams.get('city') || 'all');
+    setCurrentPage(1);
+  }, [searchParams]);
 
-  // Filter & Sort Logic
-  const filteredEvents = EVENTS.filter((evt) => {
-    // Search Filter
-    const matchesSearch =
-      !searchQuery ||
-      evt.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      evt.venue.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      evt.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
+  const cityOptions = useMemo(() => deriveCityOptions(events), [events]);
 
-    // Category Filter
-    const matchesCategory =
-      selectedCategory === 'all' || evt.category === selectedCategory;
+  const visibleEvents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
 
-    // City Filter
-    const matchesCity =
-      selectedCity === 'all' || evt.city === selectedCity;
+    const filtered = events.filter((evt) => {
+      const matchesSearch =
+        !query ||
+        evt.title?.toLowerCase().includes(query) ||
+        evt.venueName?.toLowerCase().includes(query) ||
+        evt.city?.toLowerCase().includes(query) ||
+        categoryLabel(evt.category).toLowerCase().includes(query);
 
-    // Date Filter
-    const matchesDate =
-      !selectedDate ||
-      evt.date === selectedDate.format('YYYY-MM-DD');
+      const matchesCategory = selectedCategory === 'all' || evt.category === selectedCategory;
+      const matchesCity = selectedCity === 'all' || evt.city === selectedCity;
 
-    return matchesSearch && matchesCategory && matchesCity && matchesDate;
-  });
+      const matchesDate =
+        !selectedDate || parseDate(evt.startTime)?.isSame(selectedDate, 'day');
 
-  // Sorting Logic
-  const sortedEvents = [...filteredEvents].sort((a, b) => {
-    if (sortBy === 'price-asc') return a.price - b.price;
-    if (sortBy === 'price-desc') return b.price - a.price;
-    if (sortBy === 'date-soonest') return new Date(a.date) - new Date(b.date);
-    if (sortBy === 'popularity') return b.rating - a.rating;
-    return 0;
-  });
+      return matchesSearch && matchesCategory && matchesCity && matchesDate;
+    });
 
-  // Pagination Slice
-  const paginatedEvents = sortedEvents.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'title-asc') return (a.title || '').localeCompare(b.title || '');
+      // Events with no start time sink to the bottom rather than jumping to the top.
+      const aTime = parseDate(a.startTime)?.valueOf() ?? Number.POSITIVE_INFINITY;
+      const bTime = parseDate(b.startTime)?.valueOf() ?? Number.POSITIVE_INFINITY;
+      return sortBy === 'date-latest' ? bTime - aTime : aTime - bTime;
+    });
+  }, [events, searchQuery, selectedCategory, selectedCity, selectedDate, sortBy]);
+
+  const paginatedEvents = visibleEvents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedCategory('all');
     setSelectedCity('all');
     setSelectedDate(null);
-    setSortBy('popularity');
+    setSortBy('date-soonest');
+    setCurrentPage(1);
+  };
+
+  /** Any filter change should drop you back to page 1. */
+  const withPageReset = (setter) => (value) => {
+    setter(value);
     setCurrentPage(1);
   };
 
   return (
     <div style={{ maxWidth: '1280px', margin: '0 auto', padding: '2rem 1.5rem 4rem 1.5rem' }}>
-      
-      {/* Header Breadcrumb & Title */}
+
       <div style={{ marginBottom: '2rem' }}>
         <Breadcrumb
-          items={[
-            { title: <a onClick={() => navigate('/')}>Home</a> },
-            { title: 'Events' }
-          ]}
+          items={[{ title: <a onClick={() => navigate('/')}>Home</a> }, { title: 'Events' }]}
           style={{ marginBottom: '1rem' }}
         />
-        <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a' }}>
-          Discover Live Events ({sortedEvents.length})
+        <Title level={2} style={{ margin: 0, fontWeight: 800 }}>
+          Discover Live Events{!loading && !error ? ` (${visibleEvents.length})` : ''}
         </Title>
         <Text type="secondary" style={{ fontSize: '0.95rem' }}>
-          Explore music concerts, standup comedy, sports derby, and workshops in your city
+          Movies, standup comedy, amusement and live events currently on sale
         </Text>
       </div>
 
-      {/* Control Bar: Search, Filters & Sorting */}
       <Card
-        style={{
-          borderRadius: '20px',
-          marginBottom: '2rem',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.04)',
-          border: '1px solid #e2e8f0'
-        }}
-        bodyStyle={{ padding: '1.25rem' }}
+        style={{ borderRadius: '20px', marginBottom: '2rem', boxShadow: '0 4px 20px rgba(0,0,0,0.04)' }}
+        styles={{ body: { padding: '1.25rem' } }}
       >
         <Row gutter={[16, 16]} align="middle">
-          
-          {/* Search Box */}
           <Col xs={24} sm={12} md={6}>
             <Input
               prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              placeholder="Search event name or venue..."
+              placeholder="Search event, venue or city…"
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={(e) => withPageReset(setSearchQuery)(e.target.value)}
               allowClear
               style={{ borderRadius: '10px' }}
             />
           </Col>
 
-          {/* Category Filter */}
-          <Col xs={12} sm={6} md={4}>
+          <Col xs={12} sm={6} md={5}>
             <Select
               value={selectedCategory}
-              onChange={(val) => {
-                setSelectedCategory(val);
-                setCurrentPage(1);
-              }}
+              onChange={withPageReset(setSelectedCategory)}
               style={{ width: '100%' }}
-              placeholder="Category"
-              options={[
-                { value: 'all', label: 'All Categories' },
-                ...CATEGORIES.map((c) => ({ value: c.id, label: `${c.icon} ${c.name}` }))
-              ]}
+              options={[{ value: 'all', label: 'All Categories' }, ...CATEGORY_OPTIONS]}
             />
           </Col>
 
-          {/* City Filter */}
-          <Col xs={12} sm={6} md={4}>
+          <Col xs={12} sm={6} md={5}>
             <Select
               value={selectedCity}
-              onChange={(val) => {
-                setSelectedCity(val);
-                setCurrentPage(1);
-              }}
+              onChange={withPageReset(setSelectedCity)}
               style={{ width: '100%' }}
               placeholder="City"
-              options={[
-                { value: 'all', label: 'All Cities' },
-                ...CITIES.map((c) => ({ value: c.id, label: `${c.icon} ${c.name}` }))
-              ]}
+              options={[{ value: 'all', label: 'All Cities' }, ...cityOptions]}
+              notFoundContent="No cities yet"
             />
           </Col>
 
-          {/* Date Filter */}
           <Col xs={12} sm={6} md={4}>
             <DatePicker
               value={selectedDate}
-              onChange={(date) => {
-                setSelectedDate(date);
-                setCurrentPage(1);
-              }}
-              placeholder="Select Date"
+              onChange={withPageReset(setSelectedDate)}
+              placeholder="Event date"
               style={{ width: '100%', borderRadius: '10px' }}
             />
           </Col>
 
-          {/* Sorting */}
-          <Col xs={12} sm={6} md={4}>
+          <Col xs={12} sm={6} md={3}>
             <Select
               value={sortBy}
               onChange={setSortBy}
               style={{ width: '100%' }}
               options={[
-                { value: 'popularity', label: '⭐ Top Rated' },
-                { value: 'price-asc', label: '💰 Price: Low to High' },
-                { value: 'price-desc', label: '💎 Price: High to Low' },
-                { value: 'date-soonest', label: '📅 Date: Soonest' }
+                { value: 'date-soonest', label: '📅 Soonest first' },
+                { value: 'date-latest', label: '🕓 Latest first' },
+                { value: 'title-asc', label: '🔤 A → Z' },
               ]}
             />
           </Col>
 
-          {/* Reset Filters */}
-          <Col xs={24} md={2} style={{ textAlign: 'right' }}>
+          <Col xs={24} md={1} style={{ textAlign: 'right' }}>
             <Button
               type="text"
               icon={<ReloadOutlined />}
@@ -224,140 +190,53 @@ const EventsListingPage = () => {
               Reset
             </Button>
           </Col>
-
         </Row>
       </Card>
 
-      {/* Events Grid / Skeleton / Empty State */}
-      {loading ? (
-        <Row gutter={[24, 24]}>
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Col xs={24} sm={12} lg={8} key={i}>
-              <Card style={{ borderRadius: '16px' }}>
-                <Skeleton.Image style={{ width: '100%', height: '180px', borderRadius: '12px' }} active />
-                <Skeleton active paragraph={{ rows: 3 }} style={{ marginTop: '1rem' }} />
-              </Card>
-            </Col>
-          ))}
-        </Row>
-      ) : paginatedEvents.length > 0 ? (
-        <>
-          <Row gutter={[24, 24]}>
-            {paginatedEvents.map((evt) => (
-              <Col xs={24} sm={12} lg={8} key={evt.id}>
-                <Card
-                  className="event-card"
-                  hoverable
-                  onClick={() => navigate(`/events/${evt.id}`)}
-                  cover={
-                    <div className="event-card-img-container">
-                      <img alt={evt.title} src={evt.image} className="event-card-img" />
-                      <span className="event-badge" style={{ backgroundColor: evt.tagColor }}>
-                        {evt.tag}
-                      </span>
-                      <span className="event-rating-badge">
-                        <StarFilled /> {evt.rating} ({evt.reviewsCount})
-                      </span>
-                    </div>
-                  }
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text type="secondary" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#6366f1', fontWeight: 700 }}>
-                        {evt.categoryName}
-                      </Text>
-                      <Tag color="purple" style={{ borderRadius: '12px' }}>
-                        {evt.cityName}
-                      </Tag>
-                    </div>
+      <AsyncBoundary
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        isEmpty={events.length === 0}
+        loadingTip="Loading events…"
+        emptyDescription="No events have been published yet."
+      >
+        {paginatedEvents.length > 0 ? (
+          <>
+            <Row gutter={[24, 24]}>
+              {paginatedEvents.map((event) => (
+                <Col xs={24} sm={12} lg={8} key={event.id}>
+                  <EventCard event={event} />
+                </Col>
+              ))}
+            </Row>
 
-                    <Title level={5} style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem', lineHeight: '1.3' }}>
-                      {evt.title}
-                    </Title>
-
-                    <Space style={{ color: '#64748b', fontSize: '0.85rem' }}>
-                      <CalendarOutlined /> {evt.dateFormatted} • {evt.time}
-                    </Space>
-                    
-                    <Space style={{ color: '#64748b', fontSize: '0.85rem' }}>
-                      <EnvironmentOutlined /> {evt.venue}
-                    </Space>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
-                      <div>
-                        <Text type="secondary" style={{ fontSize: '0.75rem', display: 'block' }}>Starts from</Text>
-                        <Space align="baseline">
-                          <span style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
-                            ₹{evt.price}
-                          </span>
-                          {evt.originalPrice && (
-                            <Text delete style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
-                              ₹{evt.originalPrice}
-                            </Text>
-                          )}
-                        </Space>
-                      </div>
-
-                      <Button
-                        type="primary"
-                        icon={<ArrowRightOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/events/${evt.id}`);
-                        }}
-                        style={{
-                          borderRadius: '12px',
-                          background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                          fontWeight: 600
-                        }}
-                      >
-                        View Details
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              </Col>
-            ))}
-          </Row>
-
-          {/* Pagination */}
-          <div style={{ textAlign: 'center', marginTop: '3rem' }}>
-            <Pagination
-              current={currentPage}
-              pageSize={pageSize}
-              total={sortedEvents.length}
-              onChange={(page) => setCurrentPage(page)}
-              showSizeChanger={false}
-              showTotal={(total, range) => `${range[0]}-${range[1]} of ${total} events`}
-            />
-          </div>
-        </>
-      ) : (
-        /* Empty State */
-        <Card style={{ borderRadius: '20px', padding: '3rem 1rem', textAlign: 'center' }}>
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={
-              <Space direction="vertical" size="small">
-                <Text style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1e293b' }}>
-                  No events found matching your criteria
-                </Text>
-                <Text type="secondary">
-                  Try adjusting your search keywords, city, or category filters.
-                </Text>
-              </Space>
+            <div style={{ textAlign: 'center', marginTop: '3rem' }}>
+              <Pagination
+                current={currentPage}
+                pageSize={PAGE_SIZE}
+                total={visibleEvents.length}
+                onChange={setCurrentPage}
+                showSizeChanger={false}
+                showTotal={(total, range) => `${range[0]}-${range[1]} of ${total} events`}
+              />
+            </div>
+          </>
+        ) : (
+          <EmptyState
+            description="No events match your filters. Try widening the search, city or date."
+            action={
+              <Button
+                type="primary"
+                onClick={handleResetFilters}
+                style={{ marginTop: '1rem', borderRadius: '12px', background: '#6366f1' }}
+              >
+                Clear all filters
+              </Button>
             }
-          >
-            <Button
-              type="primary"
-              onClick={handleResetFilters}
-              style={{ marginTop: '1rem', borderRadius: '12px', background: '#6366f1' }}
-            >
-              Clear All Filters
-            </Button>
-          </Empty>
-        </Card>
-      )}
+          />
+        )}
+      </AsyncBoundary>
 
     </div>
   );
