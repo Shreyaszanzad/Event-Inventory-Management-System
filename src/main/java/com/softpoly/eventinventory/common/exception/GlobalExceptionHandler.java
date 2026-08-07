@@ -3,6 +3,7 @@ package com.softpoly.eventinventory.common.exception;
 import com.softpoly.eventinventory.common.dto.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -39,6 +40,25 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
         return ResponseEntity.badRequest().body(ApiResponse.fail(message));
+    }
+
+    /**
+     * A database constraint refused the write — almost always a delete blocked by
+     * {@code ON DELETE RESTRICT} (an event that still has shows, a show that still
+     * has ticket tiers) or a duplicate on a unique column.
+     *
+     * That is the caller's mistake, not a server fault, so it must not fall through
+     * to {@link #handleGeneric} and report a 500: retrying would never help, and the
+     * admin UI has no way to explain what went wrong.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException ex) {
+        // The driver message names internal tables and constraints, so log it but
+        // send the client something it can act on.
+        log.warn("Constraint violation rejected a write", ex);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail(
+                "This record is still referenced by other data, or would duplicate an existing one. "
+                        + "Remove or update whatever depends on it first."));
     }
 
     @ExceptionHandler(Exception.class)
