@@ -13,7 +13,8 @@ import { listShowsForEvent } from '../api/shows';
 import { useApiData } from '../hooks/useApiData';
 import AsyncBoundary from '../components/AsyncBoundary';
 import { categoryMeta } from '../constants/categories';
-import { formatDate, formatTime, formatDateTime, posterOf } from '../utils/format';
+import { formatDate, formatTime, formatDateTime } from '../utils/format';
+import { PosterBackdrop } from '../components/Poster';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -48,11 +49,12 @@ const EventDetailsPage = () => {
         <div style={{ paddingBottom: '5rem' }}>
 
           {/* Banner */}
-          <div
+          <PosterBackdrop
+            source={event}
+            overlay="linear-gradient(180deg, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%)"
             style={{
               position: 'relative',
               minHeight: '400px',
-              backgroundImage: `linear-gradient(180deg, rgba(15, 23, 42, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%), url(${posterOf(event)})`,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               color: '#ffffff',
@@ -102,7 +104,7 @@ const EventDetailsPage = () => {
                 </Space>
               </Space>
             </div>
-          </div>
+          </PosterBackdrop>
 
           {/* Content */}
           <div style={{ maxWidth: '1280px', margin: '2rem auto 0 auto', padding: '0 1.5rem' }}>

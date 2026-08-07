@@ -28,7 +28,10 @@ const OtpPage = () => {
   const { signIn } = useAuth();
 
   const phone = location.state?.phone;
-  const redirectTo = location.state?.from?.pathname || '/';
+  // Keep the query string — the ticket page carries its `showId` there.
+  const redirectTo = location.state?.from
+    ? `${location.state.from.pathname}${location.state.from.search || ''}`
+    : '/';
 
   // Deliberately NOT prefilled from `devOtp`. Auto-filling the box makes the
   // verification step look staged, hides the wrong-OTP and rate-limit paths from

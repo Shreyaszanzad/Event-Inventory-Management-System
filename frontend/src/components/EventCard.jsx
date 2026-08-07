@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Typography, Space, Tag, Button } from 'antd';
 import { CalendarOutlined, EnvironmentOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { categoryMeta } from '../constants/categories';
-import { formatDateTime, posterOf } from '../utils/format';
+import { formatDateTime } from '../utils/format';
+import { Poster } from './Poster';
 
 const { Title, Text } = Typography;
 
@@ -27,7 +28,7 @@ const EventCard = ({ event, onWishlistToggle, wishlisted = false, className = ''
       onClick={open}
       cover={
         <div className="event-card-img-container">
-          <img alt={event.title} src={posterOf(event)} className="event-card-img" />
+          <Poster source={event} alt={event.title} className="event-card-img" />
 
           <span className="event-badge" style={{ backgroundColor: meta.color }}>
             {meta.icon} {meta.label}

@@ -38,7 +38,8 @@ import {
   categoryMeta,
   deriveCityOptions,
 } from '../../constants/categories';
-import { formatDateTime, toApiDateTime, posterOf } from '../../utils/format';
+import { formatDateTime, toApiDateTime } from '../../utils/format';
+import { Poster } from '../../components/Poster';
 
 const { Title, Text } = Typography;
 
@@ -162,8 +163,8 @@ const AdminEventsPage = () => {
       key: 'title',
       render: (text, record) => (
         <Space size="middle" align="center">
-          <img
-            src={posterOf(record)}
+          <Poster
+            source={record}
             alt={text}
             style={{ width: '56px', height: '56px', borderRadius: '12px', objectFit: 'cover' }}
           />
