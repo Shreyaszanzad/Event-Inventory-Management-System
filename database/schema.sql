@@ -327,6 +327,9 @@ CREATE INDEX idx_booking_items_booking
 CREATE INDEX idx_invoices_booking
     ON invoices (booking_id);
 
+CREATE INDEX idx_invoices_gateway_order
+    ON invoices (gateway_order_id);
+
 CREATE INDEX idx_payments_invoice
     ON payments (invoice_id);
 

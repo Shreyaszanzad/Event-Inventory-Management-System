@@ -26,7 +26,7 @@ VALUES
     'Admin User',
     '9876543210',
     'admin@eventinventory.com',
-    '$2a$10$dummyAdminPasswordHash',
+    '$2a$10$c7jYVcUAEJoX5297CJmZu.Ex554Pt5R9Wfn7Blyiu4CsvgvTnGXe6',
     'ADMIN',
     'ACTIVE',
     NOW(6)
@@ -35,7 +35,7 @@ VALUES
     'Achal Chopade',
     '9876543211',
     'achal@example.com',
-    '$2a$10$dummyUserPasswordHash',
+    '$2a$10$KQ7rfg9SiIUrUl3SXiQXPuAf8Ss9oY9XOZ2.J75BtnQ1lIog14BXS',
     'USER',
     'ACTIVE',
     NOW(6)
@@ -44,7 +44,7 @@ VALUES
     'Tanmay Kohad',
     '9876543212',
     'tanmay@example.com',
-    '$2a$10$dummyUserPasswordHash',
+    '$2a$10$KQ7rfg9SiIUrUl3SXiQXPuAf8Ss9oY9XOZ2.J75BtnQ1lIog14BXS',
     'USER',
     'ACTIVE',
     NOW(6)
@@ -210,7 +210,6 @@ VALUES
 -- ============================================================================
 -- 5. TICKET TYPES
 -- ============================================================================
-
 INSERT INTO ticket_types
 (
     show_id,
@@ -225,7 +224,7 @@ VALUES
     'General',
     499.00,
     500,
-    500
+    498
 ),
 (
     1,
@@ -253,14 +252,14 @@ VALUES
     'VIP',
     1499.00,
     200,
-    200
+    199   -- Changed from 200 (1 ticket booked)
 ),
 (
     3,
     'Regular',
     699.00,
     800,
-    800
+    799   -- Changed from 800 (1 ticket booked)
 ),
 (
     3,
@@ -283,7 +282,6 @@ VALUES
     100,
     100
 );
-
 
 -- ============================================================================
 -- 6. BOOKINGS
@@ -329,7 +327,7 @@ VALUES
     2,
     3,
     NOW(6),
-    NULL,
+    DATE_ADD(NOW(6), INTERVAL 10 MINUTE),
     699.00,
     'PENDING',
     'PENDING',
