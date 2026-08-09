@@ -58,6 +58,24 @@ public class AuthService {
                         .status(UserStatus.ACTIVE)
                         .build()));
 
+        // Phone + OTP is the CUSTOMER entrance. Minting a token here that carries the account's
+        // stored role would turn knowledge of an administrator's phone number into full admin
+        // access — the OTP flow never checks a password, so the only thing standing between an
+        // attacker and ROLE_ADMIN would be the six-digit code. Administrators use email+password.
+        //
+        // Refused at verify rather than at request on purpose: with a real SMS provider the caller
+        // never sees the code, so this cannot be used to probe which numbers are admin accounts.
+        if (user.getRole() != Role.USER) {
+            throw new BadRequestException(
+                    "This number is registered to an administrator account. "
+                            + "Please sign in with your email and password instead.");
+        }
+
+        // Deactivating an account has to actually stop it logging in.
+        if (user.getStatus() == UserStatus.INACTIVE) {
+            throw new BadRequestException("This account has been deactivated.");
+        }
+
         String token = jwtService.generateToken(user.getId(), user.getRole().name(),
                 user.getName() != null ? user.getName() : user.getPhone());
         return new AuthResponseDto(token, user.getId(), user.getName(), user.getRole().name());
@@ -75,6 +93,12 @@ public class AuthService {
 
         if (admin.getPasswordHash() == null
                 || !passwordEncoder.matches(dto.password(), admin.getPasswordHash())) {
+            throw new BadRequestException("Invalid email or password");
+        }
+
+        // Same message as a wrong password: a deactivated administrator should not be able to
+        // tell the difference, or the endpoint becomes an account-enumeration oracle.
+        if (admin.getStatus() == UserStatus.INACTIVE) {
             throw new BadRequestException("Invalid email or password");
         }
 

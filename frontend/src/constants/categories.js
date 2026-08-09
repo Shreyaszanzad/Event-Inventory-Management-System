@@ -44,6 +44,35 @@ export const deriveCityOptions = (events = []) => {
 };
 
 /** Booking + payment status colours, keyed by the exact backend enum names. */
+/** Inventory item categories — mirrors the backend InventoryCategory enum. */
+export const INVENTORY_CATEGORY_LABELS = {
+  FURNITURE: { label: 'Furniture', icon: '🪑', color: '#7c3aed' },
+  AUDIO_VISUAL: { label: 'Audio / Visual', icon: '🔊', color: '#2563eb' },
+  LIGHTING: { label: 'Lighting', icon: '💡', color: '#f59e0b' },
+  DECOR: { label: 'Decor', icon: '🎀', color: '#db2777' },
+  CATERING: { label: 'Catering', icon: '🍽️', color: '#16a34a' },
+  OTHER: { label: 'Other', icon: '📦', color: '#64748b' },
+};
+
+export const inventoryCategoryMeta = (category) =>
+  INVENTORY_CATEGORY_LABELS[category] || INVENTORY_CATEGORY_LABELS.OTHER;
+
+export const INVENTORY_CATEGORY_OPTIONS = Object.entries(INVENTORY_CATEGORY_LABELS).map(
+  ([value, meta]) => ({ value, label: `${meta.icon} ${meta.label}` }),
+);
+
+export const INVENTORY_STATUS_OPTIONS = [
+  { value: 'ACTIVE', label: 'Active — can be allocated' },
+  { value: 'RETIRED', label: 'Retired — kept for history only' },
+];
+
+/** Allocation lifecycle colours. Only ALLOCATED rows are actually holding stock. */
+export const ALLOCATION_STATUS_COLOR = {
+  ALLOCATED: 'blue',
+  RETURNED: 'green',
+  CANCELLED: 'default',
+};
+
 export const BOOKING_STATUS_COLOR = {
   PENDING: 'orange',
   CONFIRMED: 'green',
