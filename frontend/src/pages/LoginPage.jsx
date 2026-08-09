@@ -186,6 +186,12 @@ const LoginPage = () => {
               <Form.Item
                 name="phone"
                 label={<Text style={{ fontWeight: 600 }}>Mobile Number</Text>}
+                // Same reason as the admin email: a pasted number often carries spaces, and
+                // "+91" or dashes if it came from a contact card. Reduce to digits so the
+                // pattern judges the number rather than its formatting.
+                normalize={(value) =>
+                  typeof value === 'string' ? value.replace(/\D/g, '').slice(-10) : value
+                }
                 rules={[
                   { required: true, message: 'Please enter your 10-digit mobile number' },
                   // The API validator is \d{10}; this is the stricter Indian-mobile
