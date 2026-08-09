@@ -94,6 +94,10 @@ const AdminLoginPage = () => {
             <Form.Item
               name="email"
               label={<Text style={{ fontWeight: 600 }}>Email</Text>}
+              // Pasting an address almost always drags a space along with it, and the email
+              // rule rejects " admin@eims.com " — an error that reads as though the address
+              // itself is wrong. Strip it as it arrives so the rule never sees it.
+              normalize={(value) => (typeof value === 'string' ? value.trim() : value)}
               rules={[
                 { required: true, message: 'Please enter your email' },
                 { type: 'email', message: 'Please enter a valid email address' },
