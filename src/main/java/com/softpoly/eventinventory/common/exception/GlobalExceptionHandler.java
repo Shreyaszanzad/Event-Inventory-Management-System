@@ -2,6 +2,7 @@ package com.softpoly.eventinventory.common.exception;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.softpoly.eventinventory.common.dto.ApiResponse;
+import com.softpoly.eventinventory.notification.SmsDeliveryException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -110,6 +111,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(ApiResponse.fail(
                 "This record is still referenced by other data, or would duplicate an existing one. "
                         + "Remove or update whatever depends on it first."));
+    }
+
+    /**
+     * The SMS provider would not take the message.
+     *
+     * <p>503 rather than 500: nothing is wrong with the request and retrying may well work, which
+     * is exactly what the caller should be told. The cause can quote the request body — including
+     * the OTP — so only the safe message reaches the client.
+     */
+    @ExceptionHandler(SmsDeliveryException.class)
+    public ResponseEntity<ApiResponse<Void>> handleSmsDelivery(SmsDeliveryException ex) {
+        log.error("SMS delivery failed", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiResponse.fail(ex.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

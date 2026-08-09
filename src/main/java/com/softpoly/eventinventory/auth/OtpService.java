@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import com.softpoly.eventinventory.common.time.AppTime;
+import com.softpoly.eventinventory.notification.SmsSender;
 
 /**
  * Generates and verifies one-time passwords. The OTP is hashed (BCrypt) before storage.
@@ -23,7 +24,9 @@ import com.softpoly.eventinventory.common.time.AppTime;
  *   <li>a per-IP cap on verification calls.</li>
  * </ul>
  *
- * While {@code app.otp.mock-enabled=true}, no SMS is sent and the raw code is returned for testing.
+ * <p>Delivery goes through {@link SmsSender}. With the mock sender nothing leaves the process and
+ * the raw code comes back in the API response so the dev login flow works without a phone; with a
+ * real provider the code is sent by SMS and never appears in the response.
  */
 @Service
 public class OtpService {
@@ -33,7 +36,9 @@ public class OtpService {
     private final OtpTokenRepository otpTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final RateLimiterService rateLimiter;
+    private final SmsSender smsSender;
 
+    private final String defaultCountryCode;
     private final boolean mockEnabled;
     private final int expiryMinutes;
     private final int maxAttempts;
@@ -44,6 +49,8 @@ public class OtpService {
     public OtpService(OtpTokenRepository otpTokenRepository,
                       PasswordEncoder passwordEncoder,
                       RateLimiterService rateLimiter,
+                      SmsSender smsSender,
+                      @Value("${app.otp.default-country-code}") String defaultCountryCode,
                       @Value("${app.otp.mock-enabled}") boolean mockEnabled,
                       @Value("${app.otp.expiry-minutes}") int expiryMinutes,
                       @Value("${app.otp.max-attempts}") int maxAttempts,
@@ -53,6 +60,8 @@ public class OtpService {
         this.otpTokenRepository = otpTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.rateLimiter = rateLimiter;
+        this.smsSender = smsSender;
+        this.defaultCountryCode = defaultCountryCode;
         this.mockEnabled = mockEnabled;
         this.expiryMinutes = expiryMinutes;
         this.maxAttempts = maxAttempts;
@@ -91,8 +100,14 @@ public class OtpService {
                 .build();
         otpTokenRepository.save(token);
 
-        // TODO: replace with real SMS gateway (MSG91 / Twilio) when mock mode is disabled.
-        return mockEnabled ? code : null;
+        // Deliver. A failure throws, which rolls the token back — better than leaving the caller
+        // waiting for a code that was never sent.
+        smsSender.send(toE164(phone), buildMessage(code));
+
+        // The code is echoed back only when nothing was really sent. Keying this off the sender
+        // rather than a standalone flag means a real provider cannot leak the OTP however the rest
+        // of the configuration is set.
+        return (smsSender.isMock() && mockEnabled) ? code : null;
     }
 
     /**
@@ -129,5 +144,22 @@ public class OtpService {
 
         token.setUsed(true);
         otpTokenRepository.save(token);
+    }
+
+    /** The message body. Kept short — long messages bill as several segments. */
+    private String buildMessage(String code) {
+        return "Your EventPass verification code is " + code
+                + ". It expires in " + expiryMinutes + " minutes. Do not share it with anyone.";
+    }
+
+    /**
+     * Stored numbers are ten digits; providers want E.164. Anything already carrying a country
+     * code is left as-is.
+     */
+    private String toE164(String phone) {
+        if (phone.startsWith("+")) {
+            return phone;
+        }
+        return defaultCountryCode + phone;
     }
 }
