@@ -356,6 +356,62 @@
           }
         }
       ]
+    },
+    {
+      "name": "Payments (online)",
+      "description": "Mock-mode ready: 'Create order' saves order_id; 'Verify' computes the mock signature via a pre-request script. With real Razorpay, the signature comes from the checkout widget instead.",
+      "item": [
+        {
+          "name": "Create order (user)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var d = pm.response.json().data;",
+                  "if (d && d.orderId) { pm.collectionVariables.set('order_id', d.orderId); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/payments/orders", "host": ["{{base_url}}"], "path": ["api", "payments", "orders"] },
+            "body": { "mode": "raw", "raw": "{\n  \"invoiceId\": 1\n}" }
+          }
+        },
+        {
+          "name": "Verify payment (mock signature)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Mock-mode only: compute the signature the MockPaymentGateway accepts.",
+                  "var orderId = pm.collectionVariables.get('order_id');",
+                  "var paymentId = 'pay_mock_123';",
+                  "var sig = CryptoJS.HmacSHA256(orderId + '|' + paymentId, 'mock_secret_key').toString(CryptoJS.enc.Hex);",
+                  "pm.collectionVariables.set('pay_id', paymentId);",
+                  "pm.collectionVariables.set('pay_signature', sig);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{user_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/api/payments/verify", "host": ["{{base_url}}"], "path": ["api", "payments", "verify"] },
+            "body": { "mode": "raw", "raw": "{\n  \"orderId\": \"{{order_id}}\",\n  \"paymentId\": \"{{pay_id}}\",\n  \"signature\": \"{{pay_signature}}\"\n}" }
+          }
+        }
+      ]
     }
   ]
 }

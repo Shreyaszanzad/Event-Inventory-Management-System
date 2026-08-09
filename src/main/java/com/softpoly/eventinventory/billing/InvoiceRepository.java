@@ -14,4 +14,6 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Long> {
     List<Invoice> findByUserIdOrderByInvoiceDateDesc(Long userId);
 
     Optional<Invoice> findByIdAndUserId(Long id, Long userId);
+
+    Optional<Invoice> findByGatewayOrderId(String gatewayOrderId);
 }

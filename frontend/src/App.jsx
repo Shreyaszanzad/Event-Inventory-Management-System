@@ -18,6 +18,7 @@ import BookingConfirmPage from './pages/BookingConfirmPage';
 import BookingLookupPage from './pages/BookingLookupPage';
 import BookingSuccessPage from './pages/BookingSuccessPage';
 import MyBookingsPage from './pages/MyBookingsPage';
+import MyInvoicesPage from './pages/MyInvoicesPage';
 import BookingDetailsPage from './pages/BookingDetailsPage';
 import ProfilePage from './pages/ProfilePage';
 import AdminLayout from './layouts/AdminLayout';
@@ -140,6 +141,14 @@ function AppContent() {
                         element={
                           <ProtectedRoute>
                             <BookingDetailsPage />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path="/my-invoices"
+                        element={
+                          <ProtectedRoute>
+                            <MyInvoicesPage />
                           </ProtectedRoute>
                         }
                       />
