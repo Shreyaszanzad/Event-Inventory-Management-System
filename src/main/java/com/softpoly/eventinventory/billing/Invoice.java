@@ -61,6 +61,9 @@ public class Invoice {
     @Column(nullable = false)
     private LocalDateTime invoiceDate;
 
+    /** Gateway order id (e.g. Razorpay order_...) linking this invoice to an online payment attempt. */
+    private String gatewayOrderId;
+
     @OneToMany(mappedBy = "invoice", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<Payment> payments = new ArrayList<>();

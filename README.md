@@ -104,6 +104,25 @@ GET    /api/invoices/{id}                 my invoice detail         (ROLE_USER)
 **payments** against it (partial payments supported; overpaying is rejected). When an invoice is fully
 paid, the booking's payment flag is synced to `PAID`.
 
+### Online payments (gateway)
+```
+POST   /api/payments/orders        create a gateway order for an invoice  (ROLE_USER)
+POST   /api/payments/verify        verify checkout callback, settle it    (ROLE_USER)
+POST   /api/payments/webhook       gateway server-to-server callback      (public, signature-verified)
+```
+The gateway is abstracted behind `PaymentGateway`. Default provider is **`mock`** (no external calls —
+the whole flow runs locally and in tests). To use **Razorpay** in test mode, set env vars and restart:
+
+```bash
+export PAYMENT_PROVIDER=razorpay
+export RAZORPAY_KEY_ID=rzp_test_xxxxxxxx
+export RAZORPAY_KEY_SECRET=xxxxxxxxxxxxxxxx
+export RAZORPAY_WEBHOOK_SECRET=xxxxxxxxxxxx
+```
+The backend never sees card details (they go to the gateway's hosted checkout); it only creates the
+order and verifies HMAC signatures. Flow: **book (hold) → create order → user pays → verify/webhook →
+invoice PAID**. Secrets live only in env vars — never commit them.
+
 **Booking lifecycle:** creating a booking places a **hold** (`PENDING`) that reserves the seats and
 expires after `app.booking.hold-minutes`. Confirm it (stand-in for payment) to secure it
 (`CONFIRMED`/`PAID`); otherwise a background sweeper marks it `EXPIRED` and releases the seats.

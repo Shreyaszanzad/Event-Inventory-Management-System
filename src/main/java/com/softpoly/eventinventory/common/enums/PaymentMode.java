@@ -4,5 +4,6 @@ public enum PaymentMode {
     CASH,
     CARD,
     UPI,
-    NETBANKING
+    NETBANKING,
+    ONLINE // captured via the payment gateway (Razorpay)
 }

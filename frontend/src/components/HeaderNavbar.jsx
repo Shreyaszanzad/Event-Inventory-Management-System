@@ -5,6 +5,7 @@ import {
   SearchOutlined,
   UserOutlined,
   IdcardOutlined,
+  FileTextOutlined,
   CompassOutlined,
   DownOutlined,
   SunOutlined,
@@ -87,6 +88,7 @@ const HeaderNavbar = () => {
     items: [
       { key: 'profile', icon: <UserOutlined />, label: 'My profile', onClick: () => navigate('/profile') },
       { key: 'bookings', icon: <IdcardOutlined />, label: 'My bookings', onClick: () => navigate('/my-bookings') },
+    { key: 'invoices', icon: <FileTextOutlined />, label: 'My invoices', onClick: () => navigate('/my-invoices') },
       ...(isAdmin
         ? [{ key: 'admin', icon: <DashboardOutlined />, label: 'Admin panel', onClick: () => navigate('/admin') }]
         : []),
