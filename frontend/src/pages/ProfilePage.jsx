@@ -1,32 +1,70 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Card, Avatar, Button, Typography, Space, Breadcrumb, Tag, Divider, Popconfirm, Alert, message } from 'antd';
+import { Row, Col, Card, Avatar, Button, Typography, Space, Breadcrumb, Tag, Divider, Popconfirm, Modal, Form, Input, message } from 'antd';
 import {
   UserOutlined,
   IdcardOutlined,
   LogoutOutlined,
   SafetyCertificateOutlined,
   KeyOutlined,
+  MobileOutlined,
+  MailOutlined,
+  CalendarOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
+import { getMe, updateMe } from '../api/users';
+import { useApiData } from '../hooks/useApiData';
+import AsyncBoundary, { InlineError } from '../components/AsyncBoundary';
+import { formatDate } from '../utils/format';
 
 const { Title, Text } = Typography;
 
 /**
  * Account screen.
  *
- * Everything shown here comes from the JWT login response we already hold —
- * `{ userId, name, role }`. There is **no `GET /api/users/me` yet** (backend task
- * SZ-4), so phone, email and created-at cannot be displayed, and there is no
- * update endpoint either, which is why the mock "Edit profile" form is gone
- * rather than pretending to save.
+ * Backed by `GET /api/users/me`, so phone, email and member-since are real rather
+ * than whatever the login response happened to carry. `PUT /api/users/me` edits
+ * the display name and email.
  *
- * The mock `avatar`, `memberSince` and preferred-`city` fields have no column on
- * `User` at all and are dropped for good (integration plan §4, §6).
+ * Phone is shown but not editable: it is the credential the OTP flow
+ * authenticates against, so changing it here would move the account to a number
+ * nobody has proven they control.
+ *
+ * The mock `avatar` and preferred-`city` fields have no column on `User` and stay
+ * dropped (integration plan §4, §6).
  */
 const ProfilePage = () => {
   const navigate = useNavigate();
   const { auth, isAdmin, displayName, signOut } = useAuth();
+
+  const { data: me, loading, error, reload, setData } = useApiData(useCallback(() => getMe(), []), []);
+
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [form] = Form.useForm();
+
+  const openEdit = () => {
+    setSaveError(null);
+    form.setFieldsValue({ name: me?.name || '', email: me?.email || '' });
+    setEditing(true);
+  };
+
+  const handleSave = async (values) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await updateMe({ name: values.name || null, email: values.email || null });
+      setData(updated);
+      setEditing(false);
+      message.success('Profile updated.');
+    } catch (err) {
+      setSaveError(err);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleLogout = () => {
     signOut();
@@ -106,65 +144,143 @@ const ProfilePage = () => {
         </Col>
 
         <Col xs={24} md={16}>
-          <Card style={{ borderRadius: '24px' }} styles={{ body: { padding: '2rem' } }}>
-            <Title level={4} style={{ fontWeight: 800, marginBottom: '1.5rem' }}>
-              Session details
-            </Title>
+          <Card
+            style={{ borderRadius: '24px' }}
+            styles={{ body: { padding: '2rem' } }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <Title level={4} style={{ fontWeight: 800, margin: 0 }}>
+                Account details
+              </Title>
+              <Button icon={<EditOutlined />} onClick={openEdit} disabled={!me} style={{ borderRadius: 10 }}>
+                Edit
+              </Button>
+            </div>
 
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <InlineError error={saveError} onClose={() => setSaveError(null)} />
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ background: '#f5f3ff', padding: '12px', borderRadius: '14px', color: '#6366f1' }}>
-                  <UserOutlined style={{ fontSize: '20px' }} />
-                </div>
-                <div>
-                  <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block' }}>Display name</Text>
-                  <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>
-                    {auth?.name || <Text type="secondary">Not set — the backend falls back to your phone number</Text>}
-                  </span>
-                </div>
-              </div>
+            <AsyncBoundary
+              loading={loading}
+              error={error}
+              onRetry={reload}
+              loadingTip="Loading your account…"
+            >
+              {me && (
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '14px', color: '#16a34a' }}>
-                  <KeyOutlined style={{ fontSize: '20px' }} />
-                </div>
-                <div>
-                  <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block' }}>User ID</Text>
-                  <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>{auth?.userId ?? '—'}</span>
-                </div>
-              </div>
+                  {[
+                    {
+                      icon: <UserOutlined style={{ fontSize: '20px' }} />,
+                      tint: '#f5f3ff', colour: '#6366f1',
+                      label: 'Display name',
+                      value: me.name,
+                      fallback: 'Not set — add one with Edit',
+                    },
+                    {
+                      icon: <MobileOutlined style={{ fontSize: '20px' }} />,
+                      tint: '#eff6ff', colour: '#2563eb',
+                      label: 'Phone',
+                      value: me.phone,
+                      fallback: 'No phone on this account',
+                      hint: me.phone ? 'Used to sign in — cannot be changed here' : null,
+                    },
+                    {
+                      icon: <MailOutlined style={{ fontSize: '20px' }} />,
+                      tint: '#fdf2f8', colour: '#db2777',
+                      label: 'Email',
+                      value: me.email,
+                      fallback: 'Not set',
+                    },
+                    {
+                      icon: <CalendarOutlined style={{ fontSize: '20px' }} />,
+                      tint: '#ecfeff', colour: '#0891b2',
+                      label: 'Member since',
+                      value: me.createdAt ? formatDate(me.createdAt) : null,
+                      fallback: '—',
+                    },
+                    {
+                      icon: <KeyOutlined style={{ fontSize: '20px' }} />,
+                      tint: '#f0fdf4', colour: '#16a34a',
+                      label: 'User ID',
+                      value: String(me.id),
+                      fallback: '—',
+                    },
+                    {
+                      icon: <SafetyCertificateOutlined style={{ fontSize: '20px' }} />,
+                      tint: '#fff7ed', colour: '#ea580c',
+                      label: 'Role',
+                      value: me.role,
+                      fallback: '—',
+                    },
+                  ].map((row) => (
+                    <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <div style={{ background: row.tint, padding: '12px', borderRadius: '14px', color: row.colour }}>
+                        {row.icon}
+                      </div>
+                      <div>
+                        <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block' }}>{row.label}</Text>
+                        <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+                          {row.value || <Text type="secondary">{row.fallback}</Text>}
+                        </span>
+                        {row.hint && (
+                          <div>
+                            <Text type="secondary" style={{ fontSize: '0.75rem' }}>{row.hint}</Text>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ background: '#fff7ed', padding: '12px', borderRadius: '14px', color: '#ea580c' }}>
-                  <SafetyCertificateOutlined style={{ fontSize: '20px' }} />
-                </div>
-                <div>
-                  <Text type="secondary" style={{ fontSize: '0.8rem', display: 'block' }}>Role</Text>
-                  <span style={{ fontWeight: 700, fontSize: '1.05rem' }}>{auth?.role || '—'}</span>
-                </div>
-              </div>
+                  {me.status && me.status !== 'ACTIVE' && (
+                    <Tag color="red" style={{ borderRadius: 10, fontWeight: 700 }}>
+                      Account {me.status.toLowerCase()}
+                    </Tag>
+                  )}
 
-            </Space>
-
-            <Divider style={{ margin: '2rem 0 1.5rem' }} />
-
-            <Alert
-              type="info"
-              showIcon
-              message="Phone, email and member-since are not available yet"
-              description={
-                <>
-                  The API has no <code>GET /api/users/me</code> endpoint, so this page can only show what the
-                  login response returned. Backend task <strong>SZ-4</strong> adds it; this panel fills in once it lands.
-                </>
-              }
-              style={{ borderRadius: 12 }}
-            />
+                </Space>
+              )}
+            </AsyncBoundary>
           </Card>
         </Col>
 
       </Row>
+
+      <Modal
+        open={editing}
+        title="Edit profile"
+        onCancel={() => setEditing(false)}
+        footer={null}
+        destroyOnHidden
+      >
+        <Form form={form} layout="vertical" onFinish={handleSave} style={{ marginTop: '1rem' }}>
+          <Form.Item name="name" label="Display name">
+            <Input placeholder="How should we address you?" maxLength={255} />
+          </Form.Item>
+
+          <Form.Item
+            name="email"
+            label="Email"
+            rules={[{ type: 'email', message: 'That does not look like an email address' }]}
+          >
+            <Input placeholder="you@example.com" maxLength={255} />
+          </Form.Item>
+
+          <Text type="secondary" style={{ fontSize: '0.78rem' }}>
+            Your phone number signs you in, so it cannot be changed here.
+          </Text>
+
+          <Button
+            type="primary"
+            htmlType="submit"
+            loading={saving}
+            block
+            size="large"
+            style={{ borderRadius: 12, marginTop: '1.25rem', fontWeight: 700 }}
+          >
+            Save changes
+          </Button>
+        </Form>
+      </Modal>
 
     </div>
   );
