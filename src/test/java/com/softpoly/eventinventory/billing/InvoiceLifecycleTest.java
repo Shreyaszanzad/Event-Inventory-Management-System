@@ -55,6 +55,21 @@ class InvoiceLifecycleTest {
         TicketType tier = ticketTypeRepository.save(TicketType.builder()
                 .showId(show.getId()).name("General").price(new BigDecimal("300"))
                 .totalQty(100).availableQty(100).build());
+        BookingResponse booking = bookingService.create(1L,
+                new CreateBookingRequest(show.getId(), List.of(new CreateBookingRequest.Item(tier.getId(), qty))));
+        // Only a confirmed booking can be invoiced, so every fixture here is confirmed.
+        return bookingService.confirm(1L, booking.id());
+    }
+
+    /** A booking left as an unconfirmed PENDING hold. */
+    private BookingResponse newPendingBooking(int qty) {
+        Event event = eventRepository.save(Event.builder()
+                .title("Pending Show").type(EventType.TICKETED).status("ACTIVE").build());
+        Show show = showRepository.save(Show.builder()
+                .eventId(event.getId()).showDatetime(LocalDateTime.now().plusDays(1)).build());
+        TicketType tier = ticketTypeRepository.save(TicketType.builder()
+                .showId(show.getId()).name("General").price(new BigDecimal("300"))
+                .totalQty(100).availableQty(100).build());
         return bookingService.create(1L,
                 new CreateBookingRequest(show.getId(), List.of(new CreateBookingRequest.Item(tier.getId(), qty))));
     }
@@ -126,5 +141,36 @@ class InvoiceLifecycleTest {
         bookingService.cancel(1L, booking.id());
         assertThatThrownBy(() -> invoiceService.generate(new GenerateInvoiceRequest(booking.id(), null)))
                 .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void cannotInvoiceAnUnconfirmedBooking() {
+        BookingResponse pending = newPendingBooking(1);
+
+        assertThatThrownBy(() -> invoiceService.generate(new GenerateInvoiceRequest(pending.id(), null)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("not confirmed yet");
+    }
+
+    /**
+     * The hole this closes: a booking can be cancelled after it was invoiced. The seats go back
+     * on sale, but the invoice is a separate row — without a guard we would keep taking money
+     * for a booking that no longer exists.
+     */
+    @Test
+    void cannotPayAnInvoiceOnceItsBookingIsCancelled() {
+        BookingResponse booking = newBooking(2); // subtotal 600, confirmed
+        InvoiceResponse inv = invoiceService.generate(new GenerateInvoiceRequest(booking.id(), null));
+
+        invoiceService.recordPayment(inv.id(), new RecordPaymentRequest(new BigDecimal("100"), PaymentMode.CASH));
+        bookingService.cancel(1L, booking.id());
+
+        assertThatThrownBy(() -> invoiceService.recordPayment(
+                inv.id(), new RecordPaymentRequest(new BigDecimal("100"), PaymentMode.CASH)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessageContaining("cancelled");
+
+        // the part-payment already taken is untouched; refunds are a separate flow
+        assertThat(invoiceService.getById(inv.id()).paidAmount()).isEqualByComparingTo("100");
     }
 }
