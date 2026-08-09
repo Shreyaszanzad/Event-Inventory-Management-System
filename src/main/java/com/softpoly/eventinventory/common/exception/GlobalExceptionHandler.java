@@ -1,16 +1,22 @@
 package com.softpoly.eventinventory.common.exception;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.softpoly.eventinventory.common.dto.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.util.Arrays;
 import java.util.stream.Collectors;
 
 /** Converts exceptions into the standard {@link ApiResponse} envelope. */
@@ -40,6 +46,51 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
         return ResponseEntity.badRequest().body(ApiResponse.fail(message));
+    }
+
+    /**
+     * The request body could not be parsed at all — malformed JSON, or a value that does not fit
+     * the field it was aimed at (most often a misspelt enum such as {@code "mode":"BITCOIN"}).
+     *
+     * <p>Bean validation never runs in that case, because binding failed first, so without this
+     * the request fell through to {@link #handleGeneric} and came back as a 500 — telling the
+     * caller to retry something that can never succeed.
+     *
+     * <p>When the culprit is an enum we name the accepted values: the client cannot guess them
+     * from a 400 alone, and the alternative is reading the Java source.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.fail(describeBindingFailure(ex)));
+    }
+
+    /** A path variable of the wrong type, e.g. {@code /api/admin/invoices/not-a-number}. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity.badRequest().body(ApiResponse.fail(
+                "'" + ex.getValue() + "' is not a valid value for " + ex.getName() + "."));
+    }
+
+    /** Unknown URL. A 404 belongs here, not the 500 the catch-all would otherwise produce. */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<ApiResponse<Void>> handleNoHandler(Exception ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.fail("No endpoint matches that URL."));
+    }
+
+    /** Turns a Jackson binding failure into something a client can act on. */
+    private String describeBindingFailure(HttpMessageNotReadableException ex) {
+        if (ex.getCause() instanceof InvalidFormatException invalid) {
+            Class<?> target = invalid.getTargetType();
+            if (target != null && target.isEnum()) {
+                String accepted = Arrays.stream(target.getEnumConstants())
+                        .map(Object::toString)
+                        .collect(Collectors.joining(", "));
+                return "'" + invalid.getValue() + "' is not a valid value. Accepted values: " + accepted + ".";
+            }
+            return "'" + invalid.getValue() + "' is not valid for that field.";
+        }
+        return "The request body is malformed or missing.";
     }
 
     /**

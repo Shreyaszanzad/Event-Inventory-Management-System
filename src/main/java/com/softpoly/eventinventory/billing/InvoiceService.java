@@ -38,8 +38,14 @@ public class InvoiceService {
         Booking booking = bookingRepository.findById(request.bookingId())
                 .orElseThrow(() -> new ResourceNotFoundException("Booking not found with id " + request.bookingId()));
 
-        if (booking.getStatus() == BookingStatus.CANCELLED || booking.getStatus() == BookingStatus.EXPIRED) {
-            throw new BadRequestException("Cannot invoice a " + booking.getStatus().name().toLowerCase() + " booking");
+        // Only a confirmed booking is a sale. A PENDING one is still a ten-minute hold that the
+        // sweeper may expire or the customer may abandon — invoicing it produces a bill for seats
+        // that can silently go back on sale underneath it.
+        if (booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new BadRequestException(
+                    booking.getStatus() == BookingStatus.PENDING
+                            ? "This booking is not confirmed yet. Confirm it before invoicing."
+                            : "Cannot invoice a " + booking.getStatus().name().toLowerCase() + " booking");
         }
         if (invoiceRepository.existsByBookingId(booking.getId())) {
             throw new BadRequestException("An invoice already exists for this booking");
@@ -76,6 +82,22 @@ public class InvoiceService {
         if (invoice.getStatus() == InvoiceStatus.PAID) {
             throw new BadRequestException("Invoice is already fully paid");
         }
+
+        // A booking can still be cancelled after it was invoiced — the seats go back on sale, but
+        // the invoice is a separate row and knows nothing about it. Without this guard we would
+        // keep collecting money against a booking that no longer exists.
+        //
+        // Refunding what was already paid is a separate flow we do not have yet; this only stops
+        // the balance growing. Any invoice left part-paid against a cancelled booking has to be
+        // settled by hand.
+        Booking booking = bookingRepository.findById(invoice.getBookingId()).orElse(null);
+        if (booking != null && booking.getStatus() != BookingStatus.CONFIRMED) {
+            throw new BadRequestException(
+                    "Booking " + booking.getBookingReference() + " is "
+                            + booking.getStatus().name().toLowerCase()
+                            + "; no further payment can be recorded against its invoice.");
+        }
+
         if (request.amount().compareTo(invoice.getBalanceAmount()) > 0) {
             throw new BadRequestException("Payment " + request.amount()
                     + " exceeds the outstanding balance of " + invoice.getBalanceAmount());
@@ -92,10 +114,10 @@ public class InvoiceService {
         if (balance.signum() == 0) {
             invoice.setStatus(InvoiceStatus.PAID);
             // keep the booking's payment flag in sync once the invoice is fully settled
-            bookingRepository.findById(invoice.getBookingId()).ifPresent(b -> {
-                b.setPaymentStatus(PaymentStatus.PAID);
-                bookingRepository.save(b);
-            });
+            if (booking != null) {
+                booking.setPaymentStatus(PaymentStatus.PAID);
+                bookingRepository.save(booking);
+            }
         } else {
             invoice.setStatus(InvoiceStatus.PARTIALLY_PAID);
         }
